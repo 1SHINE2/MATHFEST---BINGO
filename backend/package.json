@@ -5,10 +5,10 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "prisma generate && tsc",
+    "build": "npx prisma generate && npx prisma db push --accept-data-loss && npx tsc",
     "start": "node dist/index.js",
     "seed": "tsx src/seed.ts",
-    "db:push": "prisma db push"
+    "db:push": "npx prisma db push"
   },
   "dependencies": {
     "@prisma/client": "^5.13.0",
