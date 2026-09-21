@@ -829,7 +829,7 @@ io.on('connection', (socket) => {
 // Nodemailer transporter — forces family: 4 (IPv4) to eliminate Render IPv6 ENETUNREACH error
 function createEmailTransporter() {
   const smtpUser = (process.env.SMTP_USER || process.env.GMAIL_USER || '').trim();
-  const rawPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || '';
+  const rawPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || process.env.GMAIL_PASS || '';
   const smtpPass = rawPass.replace(/\s+/g, ''); // strip any spaces from Gmail App Passwords!
   const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
 
