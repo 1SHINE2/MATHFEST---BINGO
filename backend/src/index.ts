@@ -940,4 +940,4 @@ app.get('/api/register/players', async (_req, res) => {
 });
 
 const PORT = 3001;
-server.listen(PORT, () => console.log(`Backend → http://localhost:${PORT}`));
+server.listen(PORT, '0.0.0.0', () => console.log(`Backend running on port ${PORT} (0.0.0.0)`));

@@ -4,8 +4,9 @@ import {
   Play, Pause, FastForward, Printer,
   Trophy, CheckCircle, XCircle, ChevronRight, ChevronDown, RefreshCw, Zap, RotateCcw, Home, Users, Plus, X, Menu, BookOpen, MonitorPlay, Cpu, Volume2, Radio, Square
 } from 'lucide-react';
+import { getBackendUrl } from './utils';
 
-const SOCKET_URL = 'http://localhost:3001';
+const SOCKET_URL = getBackendUrl();
 
 const ROUND_NAMES: Record<number, string> = {
   1: 'Easy', 2: 'Medium', 3: 'Difficult',

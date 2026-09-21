@@ -8,8 +8,9 @@ import {
 import confetti from 'canvas-confetti';
 import { GameStatus } from './Admin';
 import { ALLISON_AUDIO_PROFILES } from './allisonAudioData';
+import { getBackendUrl } from './utils';
 
-const SOCKET_URL = 'http://localhost:3001';
+const SOCKET_URL = getBackendUrl();
 
 const ROUND_NAMES: Record<number, string> = {
   1: 'Easy', 2: 'Medium', 3: 'Difficult',
