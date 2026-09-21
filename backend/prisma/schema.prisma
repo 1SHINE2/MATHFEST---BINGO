@@ -24,14 +24,18 @@ model Equation {
 }
 
 model Player {
-  id           Int        @id @default(autoincrement())
-  name         String     @unique
-  score        Int        @default(0)
-  extraTickets Boolean    @default(false)
-  doublePoints Boolean    @default(false)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  scoreLogs    ScoreLog[]
+  id              Int        @id @default(autoincrement())
+  name            String     @unique
+  email           String?    @unique
+  isVerified      Boolean    @default(false)
+  verificationPin String?
+  pinExpiresAt    DateTime?
+  score           Int        @default(0)
+  extraTickets    Boolean    @default(false)
+  doublePoints    Boolean    @default(false)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  scoreLogs       ScoreLog[]
 }
 
 // Logs every individual score event (win or penalty)

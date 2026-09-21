@@ -6,6 +6,7 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import PDFDocument from 'pdfkit';
+import nodemailer from 'nodemailer';
 import {
   checkWin,
   POINT_MATRIX,
@@ -15,6 +16,7 @@ import {
   PHASE_DESCRIPTIONS,
   getMathErrorPoints,
 } from './patterns';
+
 
 const prisma = new PrismaClient();
 const app = express();
@@ -795,6 +797,146 @@ io.on('connection', (socket) => {
     io.emit('showLeaderboardStage', { leaderboard: lb, mode: data.mode, round: data.round });
     broadcastState();
   });
+});
+
+// ─── REGISTRATION ─────────────────────────────────────────────────────────────
+
+// Nodemailer transporter — uses env vars, falls back to dev console mode
+const emailTransporter = nodemailer.createTransport(
+  process.env.SMTP_HOST
+    ? {
+        host: process.env.SMTP_HOST,
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      }
+    : { jsonTransport: true } // dev mode: logs to console
+);
+
+function generatePin(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// POST /api/register/send-pin
+app.post('/api/register/send-pin', async (req, res) => {
+  const { name, email } = req.body as { name: string; email: string };
+  const trimmedName = name?.trim();
+  const trimmedEmail = email?.trim().toLowerCase();
+
+  if (!trimmedName) return res.status(400).json({ error: 'Name is required.' });
+  if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+    return res.status(400).json({ error: 'A valid email address is required.' });
+  }
+
+  // Check if another player already registered with this email
+  const existingByEmail = await prisma.player.findUnique({ where: { email: trimmedEmail } });
+  if (existingByEmail && existingByEmail.name !== trimmedName) {
+    return res.status(409).json({ error: 'This email is already registered to another player.' });
+  }
+
+  // Check if name is already taken by a different email
+  const existingByName = await prisma.player.findUnique({ where: { name: trimmedName } });
+  if (existingByName && existingByName.email && existingByName.email !== trimmedEmail) {
+    return res.status(409).json({ error: 'This name is already registered with a different email.' });
+  }
+
+  // If already verified, don't re-send
+  if ((existingByEmail || existingByName)?.isVerified) {
+    return res.status(409).json({ error: 'You are already registered for MathFest Bingo!' });
+  }
+
+  const pin = generatePin();
+  const pinExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+  await prisma.player.upsert({
+    where: { email: trimmedEmail },
+    update: { name: trimmedName, verificationPin: pin, pinExpiresAt, isVerified: false },
+    create: { name: trimmedName, email: trimmedEmail, verificationPin: pin, pinExpiresAt, isVerified: false },
+  });
+
+  // Send email
+  const mailOptions = {
+    from: process.env.SMTP_USER || 'noreply@mathfest.ai',
+    to: trimmedEmail,
+    subject: '🎲 MathFest Bingo — Your Verification PIN',
+    html: `
+      <div style="font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; border-radius: 16px; max-width: 480px; margin: 0 auto;">
+        <h1 style="color: #34d399; font-size: 28px; margin-bottom: 4px;">MathFest AI Speed Bingo</h1>
+        <p style="color: #94a3b8; margin-bottom: 24px;">Welcome, <strong style="color: #fff;">${trimmedName}</strong>!</p>
+        <p style="margin-bottom: 16px;">Your 6-digit verification PIN is:</p>
+        <div style="background: #1e293b; border: 2px solid #34d399; border-radius: 12px; text-align: center; padding: 24px 0; margin-bottom: 24px;">
+          <span style="font-size: 48px; font-weight: 900; letter-spacing: 12px; color: #34d399;">${pin}</span>
+        </div>
+        <p style="color: #94a3b8; font-size: 14px;">This PIN expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+        <hr style="border-color: #334155; margin: 24px 0;" />
+        <p style="color: #475569; font-size: 12px;">MathFest 2026 · AI Speed Bingo Registration</p>
+      </div>
+    `,
+  };
+
+  try {
+    const info = await emailTransporter.sendMail(mailOptions);
+    // In dev mode (jsonTransport), log the PIN to the console
+    if (!process.env.SMTP_HOST) {
+      console.log(`\n📧 [DEV] PIN for ${trimmedEmail}: ${pin}\n`);
+      console.log('[DEV] Mail JSON:', (info as any).message);
+    }
+  } catch (err) {
+    console.error('Email send error:', err);
+    // Still succeed — PIN is in DB; admin can look it up
+  }
+
+  res.json({ success: true, message: `Verification PIN sent to ${trimmedEmail}.` });
+});
+
+// POST /api/register/verify-pin
+app.post('/api/register/verify-pin', async (req, res) => {
+  const { email, pin } = req.body as { email: string; pin: string };
+  const trimmedEmail = email?.trim().toLowerCase();
+
+  if (!trimmedEmail || !pin) {
+    return res.status(400).json({ error: 'Email and PIN are required.' });
+  }
+
+  const player = await prisma.player.findUnique({ where: { email: trimmedEmail } });
+  if (!player) return res.status(404).json({ error: 'No registration found for this email.' });
+
+  if (player.isVerified) {
+    return res.json({ success: true, alreadyVerified: true, player: { name: player.name, email: player.email } });
+  }
+
+  if (!player.verificationPin || player.verificationPin !== pin) {
+    return res.status(400).json({ error: 'Incorrect PIN. Please check your email and try again.' });
+  }
+
+  if (!player.pinExpiresAt || new Date() > player.pinExpiresAt) {
+    return res.status(400).json({ error: 'PIN has expired. Please request a new one.' });
+  }
+
+  const verified = await prisma.player.update({
+    where: { email: trimmedEmail },
+    data: { isVerified: true, verificationPin: null, pinExpiresAt: null },
+  });
+
+  // Broadcast the updated player list to all admin clients
+  const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+  io.emit('playersUpdate', allPlayers);
+  io.emit('playerRegistered', { name: verified.name, email: verified.email });
+
+  res.json({ success: true, player: { name: verified.name, email: verified.email } });
+});
+
+// GET /api/register/players — all registered players for the admin view
+app.get('/api/register/players', async (_req, res) => {
+  try {
+    const players = await prisma.player.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true, email: true, isVerified: true, score: true, createdAt: true },
+    });
+    res.json(players);
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch registered players' });
+  }
 });
 
 const PORT = 3001;

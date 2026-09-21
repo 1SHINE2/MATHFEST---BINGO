@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Admin from './Admin';
 import Stage from './Stage';
+import RegisterPage from './RegisterPage';
 
 function App() {
   const [route, setRoute] = useState(window.location.pathname);
@@ -18,6 +19,7 @@ function App() {
 
   if (route === '/stage') return <Stage />;
   if (route === '/admin') return <Admin />;
+  if (route === '/register') return <RegisterPage />;
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white relative overflow-hidden">
@@ -57,6 +59,15 @@ function App() {
           >
             <span className="mr-2">📺</span> Stage Display
             <div className="text-xs font-normal text-emerald-200/70 mt-0.5">Project on main screen</div>
+          </button>
+
+          <button
+            onClick={() => navigate('/register')}
+            className="group px-10 py-5 bg-indigo-700 hover:bg-indigo-600 rounded-2xl text-xl font-bold
+              transition-all hover:scale-105 shadow-lg shadow-indigo-500/15 hover:shadow-indigo-500/30"
+          >
+            <span className="mr-2">📱</span> Player Registration
+            <div className="text-xs font-normal text-indigo-200/70 mt-0.5">Register for the event</div>
           </button>
         </div>
       </div>

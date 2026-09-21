@@ -89,6 +89,7 @@ type VerifyResult = {
 };
 
 type Player = { id: number; name: string; score: number; extraTickets: boolean; doublePoints: boolean };
+type RegisteredPlayer = { id: number; name: string; email: string | null; isVerified: boolean; score: number; createdAt: string };
 
 // Reusable Player Selection Modal (defined outside Admin to prevent unmounting on state updates)
 function PlayerSelectModal({ 
@@ -178,6 +179,11 @@ export default function Admin() {
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Registration panel
+  const [activePanel, setActivePanel] = useState<'game' | 'registration'>('game');
+  const [registeredPlayers, setRegisteredPlayers] = useState<RegisteredPlayer[]>([]);
+  const [regFilter, setRegFilter] = useState<'all' | 'verified' | 'pending'>('all');
+
   useEffect(() => {
     lbRoundRef.current = lbRound;
   }, [lbRound]);
@@ -199,9 +205,14 @@ export default function Admin() {
     s.on('playersUpdate', (players: Player[]) => {
       setPlayerList(players);
     });
+    s.on('playerRegistered', () => {
+      refreshRegisteredPlayers();
+      refreshPlayers();
+    });
     fetch(`${SOCKET_URL}/api/game/drawn`).then(r => r.json()).then(d => setDrawn(d.drawn));
     refreshPlayers();
     refreshLeaderboard();
+    refreshRegisteredPlayers();
     return () => { s.disconnect(); };
   }, []);
 
@@ -212,6 +223,14 @@ export default function Admin() {
     const data = await res.json();
     setPlayerList(data);
     return data as Player[];
+  };
+
+  const refreshRegisteredPlayers = async () => {
+    try {
+      const res = await fetch(`${SOCKET_URL}/api/register/players`);
+      const data = await res.json();
+      setRegisteredPlayers(data);
+    } catch { /* ignore */ }
   };
 
   const addPlayer = async () => {
@@ -682,8 +701,134 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* CENTER PANEL: GAMEPLAY */}
+        {/* CENTER PANEL: GAMEPLAY / REGISTRATION */}
         <div className="flex-1 flex flex-col p-6 overflow-y-auto custom-scrollbar">
+
+          {/* Tab Switcher */}
+          <div className="flex gap-2 mb-6">
+            <button
+              onClick={() => setActivePanel('game')}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                activePanel === 'game'
+                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+              }`}
+            >
+              <MonitorPlay className="w-4 h-4" /> Game Control
+            </button>
+            <button
+              onClick={() => { setActivePanel('registration'); refreshRegisteredPlayers(); }}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                activePanel === 'registration'
+                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+              }`}
+            >
+              <Users className="w-4 h-4" /> Registration
+              {registeredPlayers.filter(p => p.isVerified).length > 0 && (
+                <span className="bg-indigo-500 text-white text-xs font-black px-2 py-0.5 rounded-full">
+                  {registeredPlayers.filter(p => p.isVerified).length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* ── REGISTRATION PANEL ── */}
+          {activePanel === 'registration' && (
+            <div className="space-y-5">
+              {/* Header */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-white flex items-center gap-2">
+                    <span className="text-2xl">📋</span> Registration Management
+                  </h2>
+                  <p className="text-slate-400 text-sm mt-0.5">
+                    Players who registered via the <span className="text-indigo-400 font-mono">/register</span> page. Verified players are automatically added to the Participants list.
+                  </p>
+                </div>
+                <button onClick={refreshRegisteredPlayers}
+                  className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-colors">
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Summary Stats */}
+              <div className="grid grid-cols-3 gap-4">
+                {[
+                  { label: 'Total Registrations', value: registeredPlayers.length, color: 'text-white' },
+                  { label: 'Verified', value: registeredPlayers.filter(p => p.isVerified).length, color: 'text-emerald-400' },
+                  { label: 'Pending', value: registeredPlayers.filter(p => !p.isVerified).length, color: 'text-amber-400' },
+                ].map(stat => (
+                  <div key={stat.label} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-center">
+                    <div className={`text-3xl font-black ${stat.color}`}>{stat.value}</div>
+                    <div className="text-slate-400 text-xs mt-1 uppercase tracking-widest">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Filter Tabs */}
+              <div className="flex gap-2">
+                {(['all', 'verified', 'pending'] as const).map(f => (
+                  <button key={f} onClick={() => setRegFilter(f)}
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors ${
+                      regFilter === f
+                        ? f === 'verified' ? 'bg-emerald-700 text-white'
+                          : f === 'pending' ? 'bg-amber-700 text-white'
+                          : 'bg-slate-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                    }`}
+                  >
+                    {f === 'all' ? `All (${registeredPlayers.length})` : f === 'verified'
+                      ? `Verified (${registeredPlayers.filter(p => p.isVerified).length})`
+                      : `Pending (${registeredPlayers.filter(p => !p.isVerified).length})`}
+                  </button>
+                ))}
+              </div>
+
+              {/* Player Table */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+                <div className="grid grid-cols-[1fr_1.5fr_auto_auto] text-xs font-bold uppercase tracking-widest text-slate-500 px-5 py-3 border-b border-slate-800">
+                  <span>Name</span>
+                  <span>Google Account</span>
+                  <span className="text-center">Status</span>
+                  <span className="text-center">Registered</span>
+                </div>
+                <div className="divide-y divide-slate-800/60 max-h-[400px] overflow-y-auto custom-scrollbar">
+                  {registeredPlayers
+                    .filter(p => regFilter === 'all' || (regFilter === 'verified' ? p.isVerified : !p.isVerified))
+                    .map(p => (
+                      <div key={p.id} className="grid grid-cols-[1fr_1.5fr_auto_auto] items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
+                        <div className="font-semibold text-white truncate pr-3">{p.name}</div>
+                        <div className="text-slate-400 font-mono text-xs truncate pr-3">{p.email || '—'}</div>
+                        <div className="text-center px-3">
+                          {p.isVerified ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-900/50 border border-emerald-700 rounded-full text-emerald-400 text-xs font-bold">
+                              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />Verified
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-900/30 border border-amber-800 rounded-full text-amber-400 text-xs font-bold">
+                              <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />Pending
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-slate-500 text-xs font-mono text-center whitespace-nowrap pl-3">
+                          {new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    ))}
+                  {registeredPlayers.filter(p => regFilter === 'all' || (regFilter === 'verified' ? p.isVerified : !p.isVerified)).length === 0 && (
+                    <div className="px-5 py-10 text-center text-slate-600 text-sm">
+                      {regFilter === 'all' ? 'No registrations yet. Share the /register link with players.' : `No ${regFilter} players.`}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── GAME CONTROL PANEL ── */}
+          {activePanel === 'game' && (
+          <div>
           {/* Status Banner */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between shadow-xl mb-6">
             <div>
@@ -1022,6 +1167,8 @@ export default function Admin() {
               </div>
             )}
           </div>
+          </div>
+          )}
         </div>
 
         {/* RIGHT PANEL: STAGE PREVIEW & CONTROLS */}
