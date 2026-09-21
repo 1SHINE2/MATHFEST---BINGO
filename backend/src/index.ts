@@ -816,17 +816,39 @@ io.on('connection', (socket) => {
 
 // ─── REGISTRATION ─────────────────────────────────────────────────────────────
 
-// Nodemailer transporter — uses env vars, falls back to dev console mode
-const emailTransporter = nodemailer.createTransport(
-  process.env.SMTP_HOST
-    ? {
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587'),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      }
-    : { jsonTransport: true } // dev mode: logs to console
-);
+// Nodemailer transporter — auto-detects Gmail App Passwords, strips spaces, falls back to dev mode
+function createEmailTransporter() {
+  const smtpUser = process.env.SMTP_USER?.trim();
+  const rawPass = process.env.SMTP_PASS || '';
+  const smtpPass = rawPass.replace(/\s+/g, ''); // strip any spaces from Gmail App Passwords!
+  const smtpHost = process.env.SMTP_HOST?.trim();
+
+  if (smtpUser && smtpPass) {
+    console.log(`📧 Configured Nodemailer with Gmail SMTP for user: ${smtpUser}`);
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: smtpUser, pass: smtpPass },
+      tls: { rejectUnauthorized: false },
+    });
+  }
+
+  if (smtpHost) {
+    console.log(`📧 Configured Nodemailer with Custom SMTP host: ${smtpHost}`);
+    return nodemailer.createTransport({
+      host: smtpHost,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
+      tls: { rejectUnauthorized: false },
+    });
+  }
+
+  console.log('⚠️ No SMTP credentials configured. Nodemailer running in DEV console mode.');
+  return nodemailer.createTransport({ jsonTransport: true });
+}
+
+const emailTransporter = createEmailTransporter();
+
 
 function generatePin(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -906,6 +928,33 @@ app.post('/api/register/send-pin', async (req, res) => {
 
   res.json({ success: true, message: `Verification PIN sent to ${trimmedEmail}.` });
 });
+
+// GET /api/admin/test-email — Test email dispatch diagnostics for Gmail SMTP
+app.get('/api/admin/test-email', async (req, res) => {
+  const targetEmail = (req.query.email as string || process.env.SMTP_USER || '').trim();
+  if (!targetEmail) return res.status(400).json({ error: 'No target recipient email specified.' });
+
+  try {
+    const info = await emailTransporter.sendMail({
+      from: process.env.SMTP_USER || 'noreply@mathfest.ai',
+      to: targetEmail,
+      subject: '🎲 MathFest Bingo — Test Email Dispatch',
+      html: `
+        <div style="font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; border-radius: 12px; max-width: 440px;">
+          <h2 style="color: #34d399; margin: 0 0 8px 0;">MathFest Bingo Email Test</h2>
+          <p style="margin: 0 0 16px 0;">If you receive this message, your <strong>Gmail SMTP server configuration is 100% active and working</strong>!</p>
+          <p style="color: #94a3b8; font-size: 12px; margin: 0;">Dispatched at: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' })}</p>
+        </div>
+      `,
+    });
+    console.log(`📧 Test email sent to ${targetEmail}:`, info);
+    res.json({ success: true, message: `Test email successfully sent to ${targetEmail}!`, info });
+  } catch (err: any) {
+    console.error('❌ Gmail SMTP test email error:', err);
+    res.status(500).json({ error: `Gmail SMTP Error: ${err.message}` });
+  }
+});
+
 
 
 // POST /api/register/verify-pin

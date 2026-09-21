@@ -806,11 +806,6 @@ export default function Admin() {
               }`}
             >
               <Users className="w-4 h-4" /> Registration
-              {registeredPlayers.filter(p => p.isVerified).length > 0 && (
-                <span className="bg-indigo-500 text-white text-xs font-black px-2 py-0.5 rounded-full">
-                  {registeredPlayers.filter(p => p.isVerified).length}
-                </span>
-              )}
             </button>
             <button
               onClick={() => { setActivePanel('audit'); refreshAuditLog(); }}
@@ -820,7 +815,7 @@ export default function Admin() {
                   : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
               }`}
             >
-              <Trophy className="w-4 h-4" /> Audit Ledger ({auditLog.length})
+              <Trophy className="w-4 h-4" /> Audit Ledger
             </button>
           </div>
 
@@ -833,25 +828,43 @@ export default function Admin() {
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="text-slate-300 font-semibold">Active Admin Backend:</span>
                   <span className="font-mono text-indigo-300 font-bold bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
-                    {SOCKET_URL || 'https://mathfest-bingo-backend.onrender.com (Proxy)'}
+                    {SOCKET_URL || 'https://mathfest-bingo.onrender.com (Proxy)'}
                   </span>
                 </div>
-                <button
-                  onClick={() => {
-                    const url = prompt(
-                      'Enter Backend API Server URL for Admin UI:\n\n• For Render Cloud: https://mathfest-bingo-backend.onrender.com\n• For Local Laptop: http://localhost:3001',
-                      SOCKET_URL || 'https://mathfest-bingo-backend.onrender.com'
-                    );
-                    if (url !== null) {
-                      setCustomBackendUrl(url);
-                      window.location.reload();
-                    }
-                  }}
-                  className="px-3 py-1.5 bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-700/60 text-indigo-300 rounded-lg font-bold transition-all cursor-pointer"
-                >
-                  ⚙️ Switch Server Database (Local vs Render Cloud) →
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={async () => {
+                      const email = prompt('Enter recipient email to test Gmail SMTP dispatch:', 'jerichoygot8@gmail.com');
+                      if (!email) return;
+                      try {
+                        const res = await fetch(`${SOCKET_URL}/api/admin/test-email?email=${encodeURIComponent(email)}`);
+                        const data = await res.json();
+                        if (res.ok) alert(`✓ SUCCESS!\n\n${data.message}`);
+                        else alert(`❌ GMAIL SMTP ERROR:\n\n${data.error}`);
+                      } catch (err: any) { alert(`❌ Connection Error: ${err.message}`); }
+                    }}
+                    className="px-3 py-1.5 bg-emerald-950/60 hover:bg-emerald-800/60 border border-emerald-700/60 text-emerald-300 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    📧 Test Gmail Dispatch
+                  </button>
+                  <button
+                    onClick={() => {
+                      const url = prompt(
+                        'Enter Backend API Server URL for Admin UI:\n\n• For Render Cloud: https://mathfest-bingo.onrender.com\n• For Local Laptop: http://localhost:3001',
+                        SOCKET_URL || 'https://mathfest-bingo.onrender.com'
+                      );
+                      if (url !== null) {
+                        setCustomBackendUrl(url);
+                        window.location.reload();
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-700/60 text-indigo-300 rounded-lg font-bold transition-all cursor-pointer"
+                  >
+                    ⚙️ Switch Server Database →
+                  </button>
+                </div>
               </div>
+
 
               {/* Header */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between">
