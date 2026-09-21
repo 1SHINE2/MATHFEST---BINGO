@@ -1020,6 +1020,26 @@ app.delete('/api/register/players/:id', async (req, res) => {
   }
 });
 
+// POST /api/register/admin-verify/:id — host manually verifies a pending registration instantly
+app.post('/api/register/admin-verify/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  try {
+    const verified = await prisma.player.update({
+      where: { id },
+      data: { isVerified: true, verificationPin: null, pinExpiresAt: null },
+    });
+    const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+    io.emit('playersUpdate', allPlayers);
+    io.emit('playerRegistered', { name: verified.name, email: verified.email });
+    logEvent('REGISTRATION', verified.name, 'Host Manual Instant Verification', 'Verified', `Email: ${verified.email || 'N/A'}`);
+    res.json({ success: true, player: verified });
+  } catch {
+    res.status(500).json({ error: 'Failed to verify player' });
+  }
+});
+
+
 // ─── 3 STRUCTURED SPREADSHEETS FOR GOOGLE SHEETS EXPORT ───────────────────────
 
 // SPREADSHEET 1: Game Event Timeline (Rounds, Phases & Claims)

@@ -4,7 +4,7 @@ import {
   Play, Pause, FastForward, Printer,
   Trophy, CheckCircle, XCircle, ChevronRight, ChevronDown, RefreshCw, Zap, RotateCcw, Home, Users, Plus, X, Menu, BookOpen, MonitorPlay, Cpu, Volume2, Radio, Square
 } from 'lucide-react';
-import { getBackendUrl } from './utils';
+import { getBackendUrl, setCustomBackendUrl } from './utils';
 
 const SOCKET_URL = getBackendUrl();
 
@@ -255,6 +255,16 @@ export default function Admin() {
       const res = await fetch(`${SOCKET_URL}/api/admin/audit-log`);
       const data = await res.json();
       setAuditLog(data);
+    } catch { /* ignore */ }
+  };
+
+  const adminVerifyPlayer = async (id: number, name: string) => {
+    if (!confirm(`Manually verify participant "${name}" without requiring email PIN?`)) return;
+    try {
+      await fetch(`${SOCKET_URL}/api/register/admin-verify/${id}`, { method: 'POST' });
+      refreshRegisteredPlayers();
+      refreshPlayers();
+      refreshAuditLog();
     } catch { /* ignore */ }
   };
 
@@ -781,6 +791,32 @@ export default function Admin() {
           {/* ── REGISTRATION PANEL ── */}
           {activePanel === 'registration' && (
             <div className="space-y-5">
+              {/* Connected Server Indicator Banner */}
+              <div className="bg-slate-900 border border-indigo-900/60 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-slate-300 font-semibold">Active Admin Backend:</span>
+                  <span className="font-mono text-indigo-300 font-bold bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800">
+                    {SOCKET_URL || 'https://mathfest-bingo-backend.onrender.com (Proxy)'}
+                  </span>
+                </div>
+                <button
+                  onClick={() => {
+                    const url = prompt(
+                      'Enter Backend API Server URL for Admin UI:\n\n• For Render Cloud: https://mathfest-bingo-backend.onrender.com\n• For Local Laptop: http://localhost:3001',
+                      SOCKET_URL || 'https://mathfest-bingo-backend.onrender.com'
+                    );
+                    if (url !== null) {
+                      setCustomBackendUrl(url);
+                      window.location.reload();
+                    }
+                  }}
+                  className="px-3 py-1.5 bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-700/60 text-indigo-300 rounded-lg font-bold transition-all cursor-pointer"
+                >
+                  ⚙️ Switch Server Database (Local vs Render Cloud) →
+                </button>
+              </div>
+
               {/* Header */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between">
                 <div>
@@ -792,7 +828,7 @@ export default function Admin() {
                   </p>
                 </div>
                 <button onClick={refreshRegisteredPlayers}
-                  className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-colors">
+                  className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-white transition-colors cursor-pointer" title="Refresh list">
                   <RefreshCw className="w-4 h-4" />
                 </button>
               </div>
@@ -815,7 +851,7 @@ export default function Admin() {
               <div className="flex gap-2">
                 {(['all', 'verified', 'pending'] as const).map(f => (
                   <button key={f} onClick={() => setRegFilter(f)}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors ${
+                    className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer ${
                       regFilter === f
                         ? f === 'verified' ? 'bg-emerald-700 text-white'
                           : f === 'pending' ? 'bg-amber-700 text-white'
@@ -852,18 +888,27 @@ export default function Admin() {
                               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />Verified
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-900/30 border border-amber-800 rounded-full text-amber-400 text-xs font-bold" title={`PIN Backup: ${p.verificationPin || 'Generating'}`}>
-                              <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />PIN: {p.verificationPin || 'Pending'}
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-900/40 border border-amber-600/80 rounded-full text-amber-300 text-xs font-bold shadow-[0_0_10px_rgba(245,158,11,0.2)]" title="Host PIN Backup">
+                              🔑 PIN: <strong className="text-amber-200 font-mono text-sm tracking-wider">{p.verificationPin || 'Generating'}</strong>
                             </span>
                           )}
                         </div>
                         <div className="text-slate-500 text-xs font-mono text-center whitespace-nowrap px-3">
                           {new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex items-center justify-end gap-2">
+                          {!p.isVerified && (
+                            <button
+                              onClick={() => adminVerifyPlayer(p.id, p.name)}
+                              className="px-2.5 py-1.5 bg-emerald-950/60 hover:bg-emerald-600/50 border border-emerald-700 text-emerald-300 hover:text-emerald-100 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 text-xs font-bold"
+                              title="Manually verify participant immediately"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" /> Verify
+                            </button>
+                          )}
                           <button
                             onClick={() => deleteRegisteredPlayer(p.id, p.name)}
-                            className="p-1.5 bg-red-950/40 hover:bg-red-600/30 border border-red-800/50 text-red-400 hover:text-red-200 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 text-xs font-bold"
+                            className="px-2.5 py-1.5 bg-red-950/40 hover:bg-red-600/30 border border-red-800/50 text-red-400 hover:text-red-200 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 text-xs font-bold"
                             title="Delete participant registration"
                           >
                             <X className="w-3.5 h-3.5" /> Delete
@@ -871,6 +916,7 @@ export default function Admin() {
                         </div>
                       </div>
                     ))}
+
                   {registeredPlayers.filter(p => regFilter === 'all' || (regFilter === 'verified' ? p.isVerified : !p.isVerified)).length === 0 && (
                     <div className="px-5 py-10 text-center text-slate-600 text-sm">
                       {regFilter === 'all' ? 'No registrations yet. Share the /register link with players.' : `No ${regFilter} players.`}
