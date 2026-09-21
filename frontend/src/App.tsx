@@ -21,6 +21,12 @@ function App() {
   if (route === '/admin') return <Admin />;
   if (route === '/register') return <RegisterPage />;
 
+  // Public Vercel Deployment: Default root path to RegisterPage automatically!
+  const isVercelPublic = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
+  if (isVercelPublic) {
+    return <RegisterPage />;
+  }
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950 text-white relative overflow-hidden">
       {/* Ambient glow */}
