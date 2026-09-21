@@ -215,7 +215,10 @@ export default function Admin() {
     s.on('auditLogUpdate', (entry: any) => {
       setAuditLog(prev => [entry, ...prev.filter(e => e.id !== entry.id)]);
     });
-    fetch(`${SOCKET_URL}/api/game/drawn`).then(r => r.json()).then(d => setDrawn(d.drawn));
+    fetch(`${SOCKET_URL}/api/game/drawn`).then(r => r.json()).then(d => setDrawn(d.drawn)).catch(() => null);
+    fetch(`${SOCKET_URL}/api/game/sequence?round=1`).then(r => r.json()).then(seq => {
+      if (Array.isArray(seq) && seq.length > 0) setEquations(seq);
+    }).catch(() => null);
     refreshPlayers();
     refreshLeaderboard();
     refreshRegisteredPlayers();
@@ -1263,7 +1266,25 @@ export default function Admin() {
                   </div>
 
                   {!equations.length ? (
-                    <p className="text-slate-600 text-xl">Select a round to begin.</p>
+                    <div className="flex flex-col items-center gap-4 py-6">
+                      <div className="text-emerald-400 font-bold text-lg flex items-center gap-2">
+                        <Zap className="w-5 h-5 animate-pulse text-yellow-400" /> Select a Round to Load Problem Generator:
+                      </div>
+                      <div className="flex flex-wrap gap-3 justify-center">
+                        <button onClick={() => loadSequenceForRound(1)}
+                          className="px-5 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl font-black text-white transition-all shadow-lg flex items-center gap-2">
+                          <Play className="w-4 h-4 fill-current" /> Load Round 1 (Easy · 10s)
+                        </button>
+                        <button onClick={() => loadSequenceForRound(2)}
+                          className="px-5 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-black text-white transition-all shadow-lg flex items-center gap-2">
+                          <Play className="w-4 h-4 fill-current" /> Load Round 2 (Medium · 15s)
+                        </button>
+                        <button onClick={() => loadSequenceForRound(3)}
+                          className="px-5 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-black text-white transition-all shadow-lg flex items-center gap-2">
+                          <Play className="w-4 h-4 fill-current" /> Load Round 3 (Difficult · 20s)
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <>
                       <div className="text-slate-500 font-mono text-lg mb-6">

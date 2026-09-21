@@ -218,9 +218,10 @@ function generateUniqueEquation(target: number, round: number): string {
   throw new Error("Could not generate unique equation");
 }
 
-async function main() {
-  console.log('Clearing old data...');
-  await prisma.equation.deleteMany();
+export async function seedDatabase(dbClient?: PrismaClient) {
+  const p = dbClient || prisma;
+  console.log('Clearing old equations data...');
+  await p.equation.deleteMany();
 
   const equationsToInsert = [];
 
@@ -254,18 +255,20 @@ async function main() {
   }
 
   console.log(`Seeding ${equationsToInsert.length} equations into DB...`);
-  await prisma.equation.createMany({
+  await p.equation.createMany({
     data: equationsToInsert
   });
-  console.log('Done!');
+  console.log('Done seeding equations!');
 }
 
-main()
-  .then(async () => {
-    await prisma.$disconnect();
-  })
-  .catch(async (e) => {
-    console.error(e);
-    await prisma.$disconnect();
-    process.exit(1);
-  });
+if (require.main === module) {
+  seedDatabase()
+    .then(async () => {
+      await prisma.$disconnect();
+    })
+    .catch(async (e) => {
+      console.error(e);
+      await prisma.$disconnect();
+      process.exit(1);
+    });
+}

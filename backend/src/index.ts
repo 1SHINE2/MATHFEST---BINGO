@@ -16,6 +16,7 @@ import {
   PHASE_DESCRIPTIONS,
   getMathErrorPoints,
 } from './patterns';
+import { seedDatabase } from './seed';
 
 
 const prisma = new PrismaClient();
@@ -129,12 +130,17 @@ app.get('/api/game/sequence', async (req, res) => {
     if (currentSequence.length === 0 || currentRound !== round) {
       currentRound = round;
       drawnNumbers.clear();
-      const equations = await prisma.equation.findMany({ where: { difficulty: round } });
+      let equations = await prisma.equation.findMany({ where: { difficulty: round } });
+      if (equations.length === 0) {
+        await seedDatabase(prisma);
+        equations = await prisma.equation.findMany({ where: { difficulty: round } });
+      }
       for (let i = equations.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [equations[i], equations[j]] = [equations[j], equations[i]];
       }
       currentSequence = equations;
+      broadcastSequence();
     }
     res.json(currentSequence);
   } catch {
@@ -646,7 +652,11 @@ io.on('connection', (socket) => {
     gameState.dualCallActive = false;
     gameState.dualCallRemaining = 0;
     
-    const equations = await prisma.equation.findMany({ where: { difficulty: data.round } });
+    let equations = await prisma.equation.findMany({ where: { difficulty: data.round } });
+    if (equations.length === 0) {
+      await seedDatabase(prisma);
+      equations = await prisma.equation.findMany({ where: { difficulty: data.round } });
+    }
     for (let i = equations.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [equations[i], equations[j]] = [equations[j], equations[i]];
@@ -1263,6 +1273,17 @@ app.get('/api/register/players', async (_req, res) => {
 });
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
-server.listen(PORT, '0.0.0.0', () => console.log(`Backend running on port ${PORT} (0.0.0.0)`));
+server.listen(PORT, '0.0.0.0', async () => {
+  console.log(`Backend running on port ${PORT} (0.0.0.0)`);
+  try {
+    const count = await prisma.equation.count();
+    if (count === 0) {
+      console.log('No equations found in DB. Auto-seeding default equations...');
+      await seedDatabase(prisma);
+    }
+  } catch (err) {
+    console.error('Error auto-seeding equations on startup:', err);
+  }
+});
 
 
