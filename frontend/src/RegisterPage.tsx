@@ -177,7 +177,7 @@ export default function RegisterPage() {
     const email = formData.email.trim().toLowerCase();
 
     if (!name) return setError('Please enter your full name.');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError('Please enter a valid Google (Gmail) account.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError('Please enter a valid email address.');
 
     setLoading(true);
     try {
@@ -322,7 +322,7 @@ export default function RegisterPage() {
         >
           <div>
             <h2 className="text-xl font-black text-white mb-0.5">Create Player Profile</h2>
-            <p className="text-slate-400 text-xs">Enter your name and Google account to register for the event.</p>
+            <p className="text-slate-400 text-xs">Enter your name and email address to register for the event.</p>
           </div>
 
           <div className="space-y-4">
@@ -344,13 +344,13 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-[11px] font-black text-[#00F5D4] uppercase tracking-widest mb-1.5">
-                Google Account (Gmail)
+                Email Address
               </label>
               <input
                 type="email"
                 value={formData.email}
                 onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
-                placeholder="yourname@gmail.com"
+                placeholder="yourname@email.com"
                 className="w-full px-4 py-3.5 bg-slate-950/80 border border-slate-700 rounded-xl text-white text-base
                   placeholder-slate-500 outline-none focus:border-[#00F5D4] focus:ring-2 focus:ring-[#00F5D4]/20
                   transition-all"

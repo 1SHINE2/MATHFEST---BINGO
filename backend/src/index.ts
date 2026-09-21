@@ -828,15 +828,15 @@ io.on('connection', (socket) => {
 
 // Nodemailer transporter — forces family: 4 (IPv4) to eliminate Render IPv6 ENETUNREACH error
 function createEmailTransporter() {
-  const smtpUser = process.env.SMTP_USER?.trim();
-  const rawPass = process.env.SMTP_PASS || '';
+  const smtpUser = (process.env.SMTP_USER || process.env.GMAIL_USER || '').trim();
+  const rawPass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD || '';
   const smtpPass = rawPass.replace(/\s+/g, ''); // strip any spaces from Gmail App Passwords!
   const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
 
   if (smtpUser && smtpPass) {
-    console.log(`📧 Configured Nodemailer IPv4 SSL Port 465 for Gmail user: ${smtpUser}`);
+    console.log(`📧 Configured Nodemailer IPv4 SSL Port 465 for user: ${smtpUser}`);
     return nodemailer.createTransport({
-      host: 'smtp.gmail.com',
+      host: smtpHost,
       port: 465,
       secure: true, // SSL port 465 is open on Render
       family: 4, // FORCE IPv4 to eliminate Render IPv6 ENETUNREACH error!
@@ -847,22 +847,6 @@ function createEmailTransporter() {
       socketTimeout: 8000,
     } as any);
   }
-
-  if (smtpHost && smtpHost !== 'smtp.gmail.com') {
-    console.log(`📧 Configured Nodemailer with Custom SMTP host: ${smtpHost}`);
-    return nodemailer.createTransport({
-      host: smtpHost,
-      port: parseInt(process.env.SMTP_PORT || '465'),
-      secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
-      family: 4, // FORCE IPv4
-      auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
-      tls: { rejectUnauthorized: false },
-      connectionTimeout: 8000,
-      greetingTimeout: 8000,
-      socketTimeout: 8000,
-    } as any);
-  }
-
 
   console.log('⚠️ No SMTP credentials configured. Nodemailer running in DEV console mode.');
   return nodemailer.createTransport({ jsonTransport: true });
@@ -875,6 +859,7 @@ function generatePin(): string {
 }
 
 async function dispatchPinEmail(toEmail: string, name: string, pin: string) {
+  const smtpUser = (process.env.SMTP_USER || process.env.GMAIL_USER || '').trim();
   const resendKey = process.env.RESEND_API_KEY?.trim();
   const html = `
     <div style="font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; border-radius: 16px; max-width: 480px; margin: 0 auto;">
@@ -890,6 +875,24 @@ async function dispatchPinEmail(toEmail: string, name: string, pin: string) {
     </div>
   `;
 
+  // First priority: Standard Gmail SMTP (sends to ALL recipient email accounts worldwide)
+  if (smtpUser) {
+    try {
+      const mailOptions = {
+        from: `MathFest Bingo <${smtpUser}>`,
+        to: toEmail,
+        subject: '🎲 MathFest Bingo — Your Verification PIN',
+        html,
+      };
+      await emailTransporter.sendMail(mailOptions);
+      console.log(`📧 PIN Email dispatched via Gmail SMTP (${smtpUser}) to ${toEmail}`);
+      return;
+    } catch (err: any) {
+      console.error('❌ Gmail SMTP send error:', err.message);
+    }
+  }
+
+  // Second priority: Resend HTTPS API (if configured)
   if (resendKey) {
     try {
       const res = await fetch('https://api.resend.com/emails', {
@@ -916,22 +919,7 @@ async function dispatchPinEmail(toEmail: string, name: string, pin: string) {
     }
   }
 
-  try {
-    const mailOptions = {
-      from: process.env.SMTP_USER || 'noreply@mathfest.ai',
-      to: toEmail,
-      subject: '🎲 MathFest Bingo — Your Verification PIN',
-      html,
-    };
-    await emailTransporter.sendMail(mailOptions);
-    if (!process.env.SMTP_USER) {
-      console.log(`\n📧 [DEV] PIN for ${toEmail}: ${pin}\n`);
-    } else {
-      console.log(`📧 PIN Email dispatched via Nodemailer to ${toEmail}`);
-    }
-  } catch (err: any) {
-    console.error('❌ Email send error:', err.message);
-  }
+  console.log(`\n📧 [DEV Fallback] PIN for ${toEmail}: ${pin}\n`);
 }
 
 // POST /api/register/send-pin
