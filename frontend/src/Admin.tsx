@@ -90,7 +90,7 @@ type VerifyResult = {
 };
 
 type Player = { id: number; name: string; score: number; extraTickets: boolean; doublePoints: boolean };
-type RegisteredPlayer = { id: number; name: string; email: string | null; isVerified: boolean; score: number; createdAt: string };
+type RegisteredPlayer = { id: number; name: string; email: string | null; isVerified: boolean; verificationPin?: string | null; score: number; createdAt: string };
 
 // Reusable Player Selection Modal (defined outside Admin to prevent unmounting on state updates)
 function PlayerSelectModal({ 
@@ -180,10 +180,11 @@ export default function Admin() {
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Registration panel
-  const [activePanel, setActivePanel] = useState<'game' | 'registration'>('game');
+  // Registration & Audit panels
+  const [activePanel, setActivePanel] = useState<'game' | 'registration' | 'audit'>('game');
   const [registeredPlayers, setRegisteredPlayers] = useState<RegisteredPlayer[]>([]);
   const [regFilter, setRegFilter] = useState<'all' | 'verified' | 'pending'>('all');
+  const [auditLog, setAuditLog] = useState<{ id: number; timestamp: string; category: string; playerName: string; action: string; points: number | string; details: string }[]>([]);
 
   useEffect(() => {
     lbRoundRef.current = lbRound;
@@ -209,12 +210,27 @@ export default function Admin() {
     s.on('playerRegistered', () => {
       refreshRegisteredPlayers();
       refreshPlayers();
+      refreshAuditLog();
+    });
+    s.on('auditLogUpdate', (entry: any) => {
+      setAuditLog(prev => [entry, ...prev.filter(e => e.id !== entry.id)]);
     });
     fetch(`${SOCKET_URL}/api/game/drawn`).then(r => r.json()).then(d => setDrawn(d.drawn));
     refreshPlayers();
     refreshLeaderboard();
     refreshRegisteredPlayers();
-    return () => { s.disconnect(); };
+    refreshAuditLog();
+
+    const pollInterval = setInterval(() => {
+      refreshPlayers();
+      refreshRegisteredPlayers();
+      refreshAuditLog();
+    }, 3000);
+
+    return () => {
+      s.disconnect();
+      clearInterval(pollInterval);
+    };
   }, []);
 
   const emit = useCallback((event: string, data?: any) => socketRef.current?.emit(event, data), []);
@@ -231,6 +247,14 @@ export default function Admin() {
       const res = await fetch(`${SOCKET_URL}/api/register/players`);
       const data = await res.json();
       setRegisteredPlayers(data);
+    } catch { /* ignore */ }
+  };
+
+  const refreshAuditLog = async () => {
+    try {
+      const res = await fetch(`${SOCKET_URL}/api/admin/audit-log`);
+      const data = await res.json();
+      setAuditLog(data);
     } catch { /* ignore */ }
   };
 
@@ -732,6 +756,16 @@ export default function Admin() {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => { setActivePanel('audit'); refreshAuditLog(); }}
+              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                activePanel === 'audit'
+                  ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/20'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
+              }`}
+            >
+              <Trophy className="w-4 h-4" /> Audit Ledger ({auditLog.length})
+            </button>
           </div>
 
           {/* ── REGISTRATION PANEL ── */}
@@ -807,8 +841,8 @@ export default function Admin() {
                               <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />Verified
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-900/30 border border-amber-800 rounded-full text-amber-400 text-xs font-bold">
-                              <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />Pending
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-900/30 border border-amber-800 rounded-full text-amber-400 text-xs font-bold" title={`PIN Backup: ${p.verificationPin || 'Generating'}`}>
+                              <span className="w-1.5 h-1.5 bg-amber-400 rounded-full" />PIN: {p.verificationPin || 'Pending'}
                             </span>
                           )}
                         </div>
@@ -823,6 +857,68 @@ export default function Admin() {
                     </div>
                   )}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── AUDIT LEDGER PANEL ── */}
+          {activePanel === 'audit' && (
+            <div className="space-y-5">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-white flex items-center gap-2">
+                    <span className="text-2xl">📊</span> Event Audit Ledger &amp; Google Sheets Export
+                  </h2>
+                  <p className="text-slate-400 text-sm mt-0.5">
+                    Real-time official record of all registrations, scores, powers used, and game events.
+                  </p>
+                </div>
+                <a
+                  href={`${SOCKET_URL}/api/admin/export-csv`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl font-black text-white text-sm tracking-wide shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition-all hover:scale-105"
+                >
+                  📊 Export to Google Sheets / CSV ⬇
+                </a>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-950 text-slate-400 text-xs font-bold uppercase tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="px-5 py-3.5">Timestamp</th>
+                      <th className="px-5 py-3.5">Category</th>
+                      <th className="px-5 py-3.5">Player Name</th>
+                      <th className="px-5 py-3.5">Action</th>
+                      <th className="px-5 py-3.5">Points</th>
+                      <th className="px-5 py-3.5">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-mono">
+                    {auditLog.length === 0 ? (
+                      <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500 font-sans italic">No events logged yet. Events will appear here as players register and play.</td></tr>
+                    ) : (
+                      auditLog.map(e => (
+                        <tr key={e.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="px-5 py-3 text-slate-400 text-xs">{e.timestamp}</td>
+                          <td className="px-5 py-3">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                              e.category === 'REGISTRATION' ? 'bg-indigo-900/60 text-indigo-300 border border-indigo-700'
+                              : e.category === 'BINGO' ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
+                              : e.category === 'TACTICAL POWER' ? 'bg-purple-900/60 text-purple-300 border border-purple-700'
+                              : 'bg-amber-900/60 text-amber-300 border border-amber-700'
+                            }`}>{e.category}</span>
+                          </td>
+                          <td className="px-5 py-3 text-white font-bold font-sans">{e.playerName}</td>
+                          <td className="px-5 py-3 text-slate-200">{e.action}</td>
+                          <td className="px-5 py-3 text-emerald-400 font-bold">{e.points}</td>
+                          <td className="px-5 py-3 text-slate-400 text-xs font-sans">{e.details}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

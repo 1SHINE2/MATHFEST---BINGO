@@ -378,7 +378,7 @@ app.post('/api/verify', async (req, res) => {
       gameState.status = 'bingo';
       broadcastState();
       
-      io.emit('verificationResult', {
+      const payload = {
         valid: result.win,
         grid,
         drawnNumbers: Array.from(drawnNumbers),
@@ -387,7 +387,10 @@ app.post('/api/verify', async (req, res) => {
         reason,
         points: finalPoints,
         playerName: updated.name,
-      });
+        cardId: card.id,
+      };
+      io.emit('verificationResult', payload);
+      logEvent('BINGO', playerName, result.win ? 'Valid BINGO Victory!' : 'False BINGO Penalty', result.win ? `+${finalPoints} PTS` : `${finalPoints} PTS`, `Card ID: ${card.id} (${reason})`);
     }, 3000);
 
     const leaderboard = await getLeaderboard();
@@ -922,8 +925,75 @@ app.post('/api/register/verify-pin', async (req, res) => {
   const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
   io.emit('playersUpdate', allPlayers);
   io.emit('playerRegistered', { name: verified.name, email: verified.email });
+  logEvent('REGISTRATION', verified.name, 'PIN Verification Completed', 'Verified', `Email: ${verified.email}`);
 
   res.json({ success: true, player: { name: verified.name, email: verified.email } });
+});
+
+// ─── AUDIT LOGGING & GOOGLE SHEETS WEBHOOK ──────────────────────────────────────
+type AuditLogEntry = {
+  id: number;
+  timestamp: string;
+  category: string;
+  playerName: string;
+  action: string;
+  points: number | string;
+  details: string;
+};
+
+let auditLog: AuditLogEntry[] = [];
+let nextLogId = 1;
+
+async function logEvent(category: string, playerName: string, action: string, points: number | string = '—', details: string = '') {
+  const timestamp = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
+  const entry: AuditLogEntry = {
+    id: nextLogId++,
+    timestamp,
+    category,
+    playerName,
+    action,
+    points,
+    details
+  };
+  auditLog.unshift(entry);
+  if (auditLog.length > 500) auditLog.pop();
+
+  io.emit('auditLogUpdate', entry);
+
+  const webhookUrl = process.env.GOOGLE_SHEETS_WEBHOOK_URL;
+  if (webhookUrl) {
+    try {
+      await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry),
+      });
+    } catch (err: any) {
+      console.warn('Google Sheets Webhook log error:', err.message);
+    }
+  }
+}
+
+// GET /api/admin/audit-log
+app.get('/api/admin/audit-log', (_req, res) => {
+  res.json(auditLog);
+});
+
+// GET /api/admin/export-csv — Download full event ledger for Google Sheets
+app.get('/api/admin/export-csv', (_req, res) => {
+  const headers = ['Timestamp', 'Category', 'Player Name', 'Action', 'Points', 'Details'];
+  const rows = auditLog.map(e => [
+    `"${e.timestamp}"`,
+    `"${e.category}"`,
+    `"${e.playerName.replace(/"/g, '""')}"`,
+    `"${e.action.replace(/"/g, '""')}"`,
+    `"${e.points}"`,
+    `"${e.details.replace(/"/g, '""')}"`
+  ]);
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=mathfest_2026_audit_log.csv');
+  res.send(csv);
 });
 
 // GET /api/register/players — all registered players for the admin view
@@ -931,7 +1001,7 @@ app.get('/api/register/players', async (_req, res) => {
   try {
     const players = await prisma.player.findMany({
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, email: true, isVerified: true, score: true, createdAt: true },
+      select: { id: true, name: true, email: true, isVerified: true, verificationPin: true, score: true, createdAt: true },
     });
     res.json(players);
   } catch {
