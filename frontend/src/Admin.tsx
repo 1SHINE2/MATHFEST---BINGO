@@ -258,6 +258,16 @@ export default function Admin() {
     } catch { /* ignore */ }
   };
 
+  const deleteRegisteredPlayer = async (id: number, name: string) => {
+    if (!confirm(`Are you sure you want to delete participant "${name}"?`)) return;
+    try {
+      await fetch(`${SOCKET_URL}/api/register/players/${id}`, { method: 'DELETE' });
+      refreshRegisteredPlayers();
+      refreshPlayers();
+      refreshAuditLog();
+    } catch { /* ignore */ }
+  };
+
   const addPlayer = async () => {
     const name = newPlayerName.trim();
     if (!name) return;
@@ -822,17 +832,18 @@ export default function Admin() {
 
               {/* Player Table */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <div className="grid grid-cols-[1fr_1.5fr_auto_auto] text-xs font-bold uppercase tracking-widest text-slate-500 px-5 py-3 border-b border-slate-800">
+                <div className="grid grid-cols-[1fr_1.5fr_auto_auto_auto] text-xs font-bold uppercase tracking-widest text-slate-500 px-5 py-3 border-b border-slate-800">
                   <span>Name</span>
                   <span>Google Account</span>
                   <span className="text-center">Status</span>
                   <span className="text-center">Registered</span>
+                  <span className="text-right">Actions</span>
                 </div>
                 <div className="divide-y divide-slate-800/60 max-h-[400px] overflow-y-auto custom-scrollbar">
                   {registeredPlayers
                     .filter(p => regFilter === 'all' || (regFilter === 'verified' ? p.isVerified : !p.isVerified))
                     .map(p => (
-                      <div key={p.id} className="grid grid-cols-[1fr_1.5fr_auto_auto] items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
+                      <div key={p.id} className="grid grid-cols-[1fr_1.5fr_auto_auto_auto] items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
                         <div className="font-semibold text-white truncate pr-3">{p.name}</div>
                         <div className="text-slate-400 font-mono text-xs truncate pr-3">{p.email || '—'}</div>
                         <div className="text-center px-3">
@@ -846,8 +857,17 @@ export default function Admin() {
                             </span>
                           )}
                         </div>
-                        <div className="text-slate-500 text-xs font-mono text-center whitespace-nowrap pl-3">
+                        <div className="text-slate-500 text-xs font-mono text-center whitespace-nowrap px-3">
                           {new Date(p.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        <div className="text-right">
+                          <button
+                            onClick={() => deleteRegisteredPlayer(p.id, p.name)}
+                            className="p-1.5 bg-red-950/40 hover:bg-red-600/30 border border-red-800/50 text-red-400 hover:text-red-200 rounded-lg transition-all cursor-pointer inline-flex items-center gap-1 text-xs font-bold"
+                            title="Delete participant registration"
+                          >
+                            <X className="w-3.5 h-3.5" /> Delete
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -864,22 +884,58 @@ export default function Admin() {
           {/* ── AUDIT LEDGER PANEL ── */}
           {activePanel === 'audit' && (
             <div className="space-y-5">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex items-center justify-between">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-black text-white flex items-center gap-2">
-                    <span className="text-2xl">📊</span> Event Audit Ledger &amp; Google Sheets Export
+                    <span className="text-2xl">📊</span> Event Audit Ledger &amp; 3-Spreadsheet Exporter
                   </h2>
                   <p className="text-slate-400 text-sm mt-0.5">
-                    Real-time official record of all registrations, scores, powers used, and game events.
+                    Official timestamped records for Game Event Timelines, Participant Ledgers, and Standings.
                   </p>
                 </div>
                 <a
-                  href={`${SOCKET_URL}/api/admin/export-csv`}
+                  href={`${SOCKET_URL}/api/admin/export-all-sheets`}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl font-black text-white text-sm tracking-wide shadow-lg shadow-emerald-500/20 flex items-center gap-2 transition-all hover:scale-105"
+                  className="px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 rounded-xl font-black text-white text-sm tracking-wide shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all hover:scale-105"
                 >
-                  📊 Export to Google Sheets / CSV ⬇
+                  📊 Download Master 3-in-1 Google Sheets Workbook ⬇
+                </a>
+              </div>
+
+              {/* 3 Structured Spreadsheet Buttons */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <a
+                  href={`${SOCKET_URL}/api/admin/export-sheet1`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-indigo-500/50 rounded-2xl transition-all group"
+                >
+                  <div className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-1">1st Spreadsheet</div>
+                  <div className="text-white font-bold text-base group-hover:text-indigo-300 transition-colors">📄 Game Event Timeline</div>
+                  <div className="text-slate-400 text-xs mt-1">Round &amp; Phase Starts, Bingos, Math Errors &amp; False Alarms</div>
+                </a>
+
+                <a
+                  href={`${SOCKET_URL}/api/admin/export-sheet2`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-purple-500/50 rounded-2xl transition-all group"
+                >
+                  <div className="text-xs font-bold text-purple-400 uppercase tracking-widest mb-1">2nd Spreadsheet</div>
+                  <div className="text-white font-bold text-base group-hover:text-purple-300 transition-colors">👤 Participant Action Ledger</div>
+                  <div className="text-slate-400 text-xs mt-1">Detailed action breakdown &amp; cumulative points per participant</div>
+                </a>
+
+                <a
+                  href={`${SOCKET_URL}/api/admin/export-sheet3`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-4 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/50 rounded-2xl transition-all group"
+                >
+                  <div className="text-xs font-bold text-amber-400 uppercase tracking-widest mb-1">3rd Spreadsheet</div>
+                  <div className="text-white font-bold text-base group-hover:text-amber-300 transition-colors">🏆 Tournament Standings</div>
+                  <div className="text-slate-400 text-xs mt-1">Round 1, Round 2, Round 3 &amp; Overall Cumulative Standings</div>
                 </a>
               </div>
 

@@ -996,6 +996,129 @@ app.get('/api/admin/export-csv', (_req, res) => {
   res.send(csv);
 });
 
+// DELETE /api/register/players/:id — delete a participant from the roster
+app.delete('/api/register/players/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  try {
+    const player = await prisma.player.findUnique({ where: { id } });
+    if (player) {
+      await prisma.scoreLog.deleteMany({ where: { playerId: id } });
+      await prisma.player.delete({ where: { id } });
+      logEvent('REGISTRATION', player.name, 'Participant Registration Deleted', '—', `Email: ${player.email || 'N/A'}`);
+    }
+    const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+    io.emit('playersUpdate', allPlayers);
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Failed to delete registered player' });
+  }
+});
+
+// ─── 3 STRUCTURED SPREADSHEETS FOR GOOGLE SHEETS EXPORT ───────────────────────
+
+// SPREADSHEET 1: Game Event Timeline (Rounds, Phases & Claims)
+app.get('/api/admin/export-sheet1', async (_req, res) => {
+  const rows: string[] = [];
+  rows.push('=== SPREADSHEET 1: GAME EVENT TIMELINE ===');
+  rows.push('Timestamp,Round & Phase,Event Category,Player Name,Action,Points,Details');
+  
+  auditLog.slice().reverse().forEach(e => {
+    rows.push(`"${e.timestamp}","${e.details.includes('Round') ? e.details : 'Game Event'}","${e.category}","${e.playerName.replace(/"/g, '""')}","${e.action.replace(/"/g, '""')}","${e.points}","${e.details.replace(/"/g, '""')}"`);
+  });
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=spreadsheet_1_timeline_log.csv');
+  res.send(rows.join('\n'));
+});
+
+// SPREADSHEET 2: Participant Action Ledger (Grouped per Participant with Running Total)
+app.get('/api/admin/export-sheet2', async (_req, res) => {
+  const players = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+  const logs = await prisma.scoreLog.findMany({
+    orderBy: { createdAt: 'asc' },
+    include: { player: true },
+  });
+
+  const lines: string[] = [];
+  lines.push('=== SPREADSHEET 2: PARTICIPANT ACTION LEDGER ===');
+  lines.push('');
+
+  for (const p of players) {
+    lines.push(`"PARTICIPANT: ${p.name.toUpperCase()}"`);
+    lines.push(`"Email: ${p.email || 'N/A'} | Status: ${p.isVerified ? 'Verified' : 'Pending'} | Current Score: ${p.score}"`);
+    lines.push('Timestamp,Round & Phase,Card / Item ID,Action / Event,Points Earned,Cumulative Score');
+
+    const playerLogs = logs.filter(l => l.playerId === p.id);
+    let runningTotal = 0;
+
+    if (playerLogs.length === 0) {
+      lines.push('"—","No game events recorded for this participant","—","—","0","0"');
+    } else {
+      playerLogs.forEach(l => {
+        runningTotal += l.points;
+        const timeStr = new Date(l.createdAt).toLocaleString('en-US', { timeZone: 'Asia/Manila' });
+        lines.push(`"${timeStr}","Round ${l.round} - Phase ${l.phase}","${l.cardId}","${l.reason}","${l.points}","${runningTotal}"`);
+      });
+    }
+    lines.push(''); // blank row separator
+  }
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=spreadsheet_2_participant_ledger.csv');
+  res.send(lines.join('\n'));
+});
+
+// SPREADSHEET 3: Tournament Standings & Ranking (Round 1, Round 2, Round 3 & Overall)
+app.get('/api/admin/export-sheet3', async (_req, res) => {
+  const lines: string[] = [];
+  lines.push('=== SPREADSHEET 3: TOURNAMENT STANDINGS & RANKINGS ===');
+  lines.push('');
+
+  // Per Round Standings
+  for (const r of [1, 2, 3]) {
+    const roundScores = await getLeaderboard(r);
+    lines.push(`"--- ROUND ${r} STANDINGS ---"`);
+    lines.push('Rank,Player Name,Round Score,Extra Ticket,Double Points');
+    if (roundScores.length === 0) {
+      lines.push('"—","No scores recorded for this round","0","No","No"');
+    } else {
+      roundScores.forEach((p, idx) => {
+        lines.push(`"${idx + 1}","${p.name}","${p.score}","${p.extraTickets ? 'Yes' : 'No'}","${p.doublePoints ? 'Yes' : 'No'}"`);
+      });
+    }
+    lines.push('');
+  }
+
+  // Cumulative Overall Standings
+  const overall = await getLeaderboard();
+  lines.push('"--- OVERALL CUMULATIVE STANDINGS ---"');
+  lines.push('Rank,Player Name,Total Score,Extra Ticket,Double Points');
+  if (overall.length === 0) {
+    lines.push('"—","No overall scores recorded","0","No","No"');
+  } else {
+    overall.forEach((p, idx) => {
+      lines.push(`"${idx + 1}","${p.name}","${p.score}","${p.extraTickets ? 'Yes' : 'No'}","${p.doublePoints ? 'Yes' : 'No'}"`);
+    });
+  }
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=spreadsheet_3_tournament_rankings.csv');
+  res.send(lines.join('\n'));
+});
+
+// ALL IN ONE: Combined 3-Spreadsheet Google Sheets Workbook Exporter
+app.get('/api/admin/export-all-sheets', async (_req, res) => {
+  const req1 = await fetch(`http://localhost:3001/api/admin/export-sheet1`).then(r => r.text()).catch(() => '');
+  const req2 = await fetch(`http://localhost:3001/api/admin/export-sheet2`).then(r => r.text()).catch(() => '');
+  const req3 = await fetch(`http://localhost:3001/api/admin/export-sheet3`).then(r => r.text()).catch(() => '');
+
+  const combined = [req1, '\n\n', req2, '\n\n', req3].join('\n');
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=mathfest_2026_complete_google_sheets_master.csv');
+  res.send(combined);
+});
+
 // GET /api/register/players — all registered players for the admin view
 app.get('/api/register/players', async (_req, res) => {
   try {

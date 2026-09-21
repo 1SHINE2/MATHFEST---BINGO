@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { getBackendUrl } from './utils';
+import { getBackendUrl, setCustomBackendUrl } from './utils';
 
 type Step = 'form' | 'pin' | 'confirmed';
 
@@ -362,9 +362,28 @@ export default function RegisterPage() {
           </div>
 
           {error && (
-            <div className="flex items-start gap-2.5 bg-red-950/60 border border-red-700 rounded-xl px-4 py-3 text-red-300 text-xs leading-relaxed">
-              <span className="text-base leading-none">⚠️</span>
-              <span>{error}</span>
+            <div className="bg-red-950/60 border border-red-700 rounded-xl p-3.5 text-red-300 text-xs space-y-2">
+              <div className="flex items-start gap-2">
+                <span className="text-base leading-none">⚠️</span>
+                <span className="flex-1">{error}</span>
+              </div>
+              {error.toLowerCase().includes('network') && (
+                <div className="pt-1 border-t border-red-800/60">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const url = prompt('Enter your active Backend Host / Tunnel URL (e.g. https://mathfest.loca.lt or http://192.168.x.x:3001):', API);
+                      if (url !== null) {
+                        setCustomBackendUrl(url);
+                        window.location.reload();
+                      }
+                    }}
+                    className="text-xs font-bold text-[#00F5D4] hover:underline cursor-pointer"
+                  >
+                    ⚙️ Configure Host / Tunnel API URL →
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
