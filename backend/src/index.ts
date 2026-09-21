@@ -1,0 +1,801 @@
+import express from 'express';
+import cors from 'cors';
+import { PrismaClient } from '@prisma/client';
+import { Server } from 'socket.io';
+import http from 'http';
+import path from 'path';
+import fs from 'fs';
+import PDFDocument from 'pdfkit';
+import {
+  checkWin,
+  POINT_MATRIX,
+  FALSE_ALARM_PENALTY,
+  PATTERN_NAMES,
+  PHASE_NAMES,
+  PHASE_DESCRIPTIONS,
+  getMathErrorPoints,
+} from './patterns';
+
+const prisma = new PrismaClient();
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: '*' } });
+
+const SYSTEM_CARD_ID = '#SYSTEM';
+async function initSystemCard() {
+  try {
+    await prisma.bingoCard.upsert({
+      where: { id: SYSTEM_CARD_ID },
+      create: { id: SYSTEM_CARD_ID, grid: '[]' },
+      update: {}
+    });
+  } catch (err) {
+    console.error('Error initializing system card:', err);
+  }
+}
+initSystemCard();
+
+app.use(cors());
+app.use(express.json());
+
+// ─── GAME STATE ────────────────────────────────────────────────────────────────
+let currentSequence: any[] = [];
+let drawnNumbers: Set<number> = new Set();
+let wipedNumbers: Set<number> = new Set();
+let currentRound = 1;
+
+export type GameStatus = 
+  | 'title_main' | 'allison_intro' | 'mechanics' | 'title_hype' | 'loading' | 'title_round'
+  | 'stopped' | 'playing' | 'paused'
+  | 'math_error_verifying' | 'math_error' | 'power_selection' | 'power_activated' | 'math_error_false'
+  | 'bingo_claimed_by' | 'verifying_buildup' | 'bingo' | 'leaderboard' | 'end_round';
+
+interface GameState {
+  status: GameStatus;
+  mechanicsSlide?: number;
+  allisonLine?: number;
+  allisonSpeaking?: boolean;
+  currentEquationIndex: number;
+  timerSeconds: number;
+  maxTimerSeconds: number;
+  round: number;
+  phase: number;
+  dualCallActive: boolean;
+  dualCallRemaining: number;
+  usedPowers: Record<string, boolean>;
+  verifyingPlayerName: string;
+  mathErrorPlayerName: string;
+  activatedPower: string;
+  highlightedPower: string;
+  powerTargetNumber: string;
+  powerDrawnNumber: string;
+}
+
+let gameState: GameState = {
+  status: 'title_main' as GameStatus,
+  allisonLine: 1,
+  allisonSpeaking: false,
+  currentEquationIndex: 0,
+  timerSeconds: 10,
+  maxTimerSeconds: 10,
+  round: 1,
+  phase: 1,
+  dualCallActive: false,
+  dualCallRemaining: 0,
+  usedPowers: {
+    stealTheNumber: false,
+    memoryWipe: false,
+    extraTicket: false,
+    doublePoints: false,
+    dualCall: false,
+  },
+  verifyingPlayerName: '',
+  mathErrorPlayerName: '',
+  activatedPower: '',
+  highlightedPower: '',
+  powerTargetNumber: '',
+  powerDrawnNumber: '',
+};
+
+function broadcastState() {
+  io.emit('gameStateUpdate', {
+    ...gameState,
+    phaseName: PHASE_NAMES[gameState.phase],
+    patternName: gameState.phase === 2 ? PATTERN_NAMES[gameState.round] : null,
+    phaseDescription: PHASE_DESCRIPTIONS[gameState.phase],
+    pointMatrix: POINT_MATRIX[gameState.round],
+  });
+}
+
+function broadcastSequence() {
+  const sequenceWithFlags = currentSequence.map(eq => ({
+    ...eq,
+    isRecalled: wipedNumbers.has(eq.targetNumber)
+  }));
+  io.emit('sequenceUpdate', sequenceWithFlags);
+}
+
+// ─── SEQUENCE ─────────────────────────────────────────────────────────────────
+app.get('/api/game/sequence', async (req, res) => {
+  try {
+    const round = parseInt(req.query.round as string) || currentRound;
+    if (currentSequence.length === 0 || currentRound !== round) {
+      currentRound = round;
+      drawnNumbers.clear();
+      const equations = await prisma.equation.findMany({ where: { difficulty: round } });
+      for (let i = equations.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [equations[i], equations[j]] = [equations[j], equations[i]];
+      }
+      currentSequence = equations;
+    }
+    res.json(currentSequence);
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch equations' });
+  }
+});
+
+app.post('/api/game/sequence/reset', (_req, res) => {
+  currentSequence = [];
+  drawnNumbers.clear();
+  res.json({ message: 'Reset' });
+});
+
+app.post('/api/game/drawn', (req, res) => {
+  const { targetNumbers } = req.body; // Can be an array of numbers (for Dual Call)
+  if (Array.isArray(targetNumbers)) {
+    targetNumbers.forEach(n => {
+      if (n !== null && n !== undefined) drawnNumbers.add(Number(n));
+    });
+  } else if (req.body.targetNumber !== undefined && req.body.targetNumber !== null) {
+    drawnNumbers.add(Number(req.body.targetNumber));
+  }
+  res.json({ success: true, totalDrawn: drawnNumbers.size });
+});
+
+app.get('/api/game/drawn', (_req, res) => {
+  res.json({ drawn: Array.from(drawnNumbers) });
+});
+
+// ─── TACTICAL POWERS ──────────────────────────────────────────────────────────
+app.post('/api/game/use-power', async (req, res) => {
+  const { power, targetNumber, playerName, drawnNumber } = req.body;
+  
+  if (power === 'stealTheNumber') {
+    if (!targetNumber) return res.status(400).json({ error: 'targetNumber required' });
+    const num = Number(targetNumber);
+    if (isNaN(num) || num < 1 || num > 75)
+      return res.status(400).json({ error: 'Number must be between 1 and 75' });
+
+    // 1. Add directly to drawn pool — no equation shown on stage
+    drawnNumbers.add(num);
+
+    // 2. Remove the matching equation from the FUTURE sequence so it never
+    //    shows up as a problem for an already-answered number
+    const futureStart = gameState.currentEquationIndex + 1;
+    const matchIdx = currentSequence.findIndex(
+      (eq: any, i: number) => i >= futureStart && eq.targetNumber === num
+    );
+    if (matchIdx !== -1) {
+      currentSequence.splice(matchIdx, 1);
+    }
+
+    gameState.usedPowers.stealTheNumber = true;
+    io.emit('drawnUpdate', Array.from(drawnNumbers));
+    broadcastSequence(); // count may have dropped by 1
+    broadcastState();
+    return res.json({ success: true, message: `Number ${num} stolen — added to drawn pool and its equation removed.` });
+  }
+
+  if (power === 'memoryWipe') {
+    if (drawnNumber === undefined) return res.status(400).json({ error: 'drawnNumber required' });
+    drawnNumbers.delete(Number(drawnNumber));
+    wipedNumbers.add(Number(drawnNumber));
+    gameState.usedPowers.memoryWipe = true;
+    broadcastState();
+    return res.json({ success: true, message: `Number ${drawnNumber} wiped from active memory.` });
+  }
+
+  if (power === 'extraTicket') {
+    if (!playerName) return res.status(400).json({ error: 'playerName required' });
+    await prisma.player.update({ where: { name: playerName }, data: { extraTickets: true } });
+    gameState.usedPowers.extraTicket = true;
+    broadcastState();
+    const leaderboard = await getLeaderboard();
+    io.emit('leaderboardUpdate', leaderboard);
+    return res.json({ success: true, message: `${playerName} flagged for Extra Ticket.` });
+  }
+
+  if (power === 'doublePoints') {
+    if (!playerName) return res.status(400).json({ error: 'playerName required' });
+    await prisma.player.update({ where: { name: playerName }, data: { doublePoints: true } });
+    gameState.usedPowers.doublePoints = true;
+    broadcastState();
+    const leaderboard = await getLeaderboard();
+    io.emit('leaderboardUpdate', leaderboard);
+    return res.json({ success: true, message: `${playerName} boosted with 2x Points multiplier!` });
+  }
+
+  if (power === 'dualCall') {
+    gameState.dualCallActive = true;
+    gameState.dualCallRemaining = 5;
+    gameState.usedPowers.dualCall = true;
+
+    // Discard the Math Error equation at currentEquationIndex completely
+    const errorIdx = gameState.currentEquationIndex;
+    const remaining = currentSequence.slice(errorIdx + 1); // everything after the math error
+    const cleanSlots: any[] = [];
+    const rest: any[] = [];
+
+    for (const eq of remaining) {
+      if (!eq.isError && cleanSlots.length < 10) {
+        cleanSlots.push(eq);
+      } else {
+        rest.push(eq); // math errors and overflow go here untouched
+      }
+    }
+
+    // Top up cleanSlots from DB if there aren't 10 clean equations remaining
+    if (cleanSlots.length < 10) {
+      const existingIds = new Set(currentSequence.map((e: any) => e.id));
+      const extras = await prisma.equation.findMany({
+        where: { difficulty: gameState.round, isError: false },
+        take: 30,
+      });
+      for (const eq of extras) {
+        if (!existingIds.has(eq.id)) {
+          cleanSlots.push(eq);
+          existingIds.add(eq.id);
+          if (cleanSlots.length >= 10) break;
+        }
+      }
+    }
+
+    // Rebuild: drop math error, insert 10 clean slots right at errorIdx, then rest
+    currentSequence = [
+      ...currentSequence.slice(0, errorIdx), // everything before math error
+      ...cleanSlots,                         // 10 clean equations start right at errorIdx (Pair 1 = [errorIdx, errorIdx+1])
+      ...rest,                               // rest of round — math errors survive!
+    ];
+
+    broadcastSequence();
+    broadcastState();
+    return res.json({ success: true, message: 'Dual Call: 5 pairs ready, zero errors guaranteed.' });
+  }
+
+  res.status(400).json({ error: 'Unknown power' });
+});
+
+// Allow host to toggle a power back to unused
+app.post('/api/game/toggle-power', (req, res) => {
+  const { power, active } = req.body;
+  if (power in gameState.usedPowers) {
+    (gameState.usedPowers as any)[power] = active;
+    broadcastState();
+    res.json({ success: true, power, active });
+  } else {
+    res.status(400).json({ error: 'Invalid power' });
+  }
+});
+
+app.post('/api/game/resume', (req, res) => {
+  if (gameState.status !== 'playing') {
+    gameState.status = 'playing';
+    broadcastState();
+  }
+  res.json({ success: true });
+});
+
+// ─── PLAYERS ──────────────────────────────────────────────────────────────────
+app.get('/api/players', async (_req, res) => {
+  try {
+    const players = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+    res.json(players);
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch players' });
+  }
+});
+
+app.post('/api/players', async (req, res) => {
+  const { name } = req.body as { name: string };
+  const trimmedName = name?.trim();
+  if (!trimmedName) return res.status(400).json({ error: 'Name required' });
+  try {
+    let player = await prisma.player.findUnique({ where: { name: trimmedName } });
+    if (!player) {
+      player = await prisma.player.create({ data: { name: trimmedName, score: 0 } });
+    }
+    const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+    io.emit('playersUpdate', allPlayers);
+    res.json(player);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to create or fetch player' });
+  }
+});
+
+app.delete('/api/players/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+  try {
+    await prisma.scoreLog.deleteMany({ where: { playerId: id } });
+    await prisma.player.delete({ where: { id } });
+    const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+    io.emit('playersUpdate', allPlayers);
+    const leaderboard = await getLeaderboard();
+    io.emit('leaderboardUpdate', leaderboard);
+    res.json({ success: true });
+  } catch {
+    res.status(404).json({ error: 'Player not found' });
+  }
+});
+
+
+app.post('/api/verify', async (req, res) => {
+  const { cardId, playerName } = req.body as { cardId: string; playerName: string };
+
+  try {
+    const card = await prisma.bingoCard.findUnique({ where: { id: cardId } });
+    if (!card) return res.status(404).json({ error: `Card "${cardId}" not found.` });
+
+    const grid: number[] = JSON.parse(card.grid);
+    const { round, phase } = gameState;
+    const result = checkWin(grid, drawnNumbers, round, phase);
+
+    let player = await prisma.player.findUnique({ where: { name: playerName } });
+    if (!player) {
+      player = await prisma.player.create({ data: { name: playerName, score: 0 } });
+    }
+
+    let finalPoints = result.win ? result.points : FALSE_ALARM_PENALTY;
+    
+    // Apply Double Points Booster
+    if (result.win && player.doublePoints) {
+      finalPoints *= 2;
+      // Consume the booster
+      player = await prisma.player.update({ where: { id: player.id }, data: { doublePoints: false } });
+    }
+
+    const reason = result.win ? result.reason : 'False Alarm';
+
+    const updated = await prisma.player.update({
+      where: { id: player.id },
+      data: { score: { increment: finalPoints } },
+    });
+
+    await prisma.scoreLog.create({
+      data: { playerId: player.id, cardId: card.id, round, phase, points: finalPoints, reason },
+    });
+
+    // Update state to buildup
+    gameState.status = 'verifying_buildup';
+    gameState.verifyingPlayerName = playerName;
+    broadcastState();
+
+    // After 3 second buildup, emit the actual result to transition to bingo screen
+    setTimeout(() => {
+      gameState.status = 'bingo';
+      broadcastState();
+      
+      io.emit('verificationResult', {
+        valid: result.win,
+        grid,
+        drawnNumbers: Array.from(drawnNumbers),
+        round,
+        phase,
+        reason,
+        points: finalPoints,
+        playerName: updated.name,
+      });
+    }, 3000);
+
+    const leaderboard = await getLeaderboard();
+    io.emit('leaderboardUpdate', leaderboard);
+
+    return res.json({
+      valid: result.win,
+      message: result.win
+        ? `✅ Valid ${result.reason}! +${finalPoints} points`
+        : `❌ False Alarm! ${result.reason}. ${finalPoints} points.`,
+      points: finalPoints,
+      totalScore: updated.score,
+      playerName: updated.name,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Verification failed.' });
+  }
+});
+
+app.post('/api/game/advance-phase', async (_req, res) => {
+  if (gameState.phase < 3) {
+    gameState.phase += 1;
+    gameState.status = 'title_round'; // Transition back to Round Title seamlessly
+    broadcastState();
+    return res.json({ phase: gameState.phase });
+  } else {
+    // End the round
+    gameState.status = 'end_round';
+    broadcastState();
+    
+    // Auto-transition to leaderboard for this round after 4 seconds
+    setTimeout(async () => {
+      if (gameState.status === 'end_round') {
+        gameState.status = 'leaderboard';
+        const lb = await getLeaderboard(gameState.round);
+        io.emit('showLeaderboardStage', { leaderboard: lb, mode: 'round', round: gameState.round });
+        broadcastState();
+      }
+    }, 4000);
+
+    return res.json({ message: 'Round complete.' });
+  }
+});
+
+// ─── LEADERBOARD ──────────────────────────────────────────────────────────────
+async function getLeaderboard(round?: number) {
+  let playersData: any[];
+  if (round) {
+    const allPlayers = await prisma.player.findMany();
+    const logs = await prisma.scoreLog.groupBy({ by: ['playerId'], where: { round }, _sum: { points: true } });
+    const scoreMap = new Map(logs.map(l => [l.playerId, l._sum.points ?? 0]));
+
+    playersData = allPlayers.map(p => ({
+      id: p.id,
+      name: p.name,
+      score: scoreMap.get(p.id) ?? 0,
+      extraTickets: p.extraTickets,
+      doublePoints: p.doublePoints
+    }));
+  } else {
+    playersData = await prisma.player.findMany({ orderBy: { score: 'desc' }, take: 10 });
+  }
+  return playersData.sort((a, b) => b.score - a.score).slice(0, 10);
+}
+
+app.get('/api/leaderboard', async (req, res) => {
+  const round = req.query.round ? parseInt(req.query.round as string) : undefined;
+  res.json(await getLeaderboard(round));
+});
+
+// Clear an individual player's buffs
+app.post('/api/players/:id/clear-buffs', async (req, res) => {
+  await prisma.player.update({
+    where: { id: Number(req.params.id) },
+    data: { extraTickets: false, doublePoints: false }
+  });
+  const leaderboard = await getLeaderboard();
+  io.emit('leaderboardUpdate', leaderboard);
+  res.json({ success: true });
+});
+
+app.get('/api/score-log', async (_req, res) => {
+  const logs = await prisma.scoreLog.findMany({
+    include: { player: true, card: true },
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+  });
+  res.json(logs);
+});
+
+app.post('/api/reset-scores', async (_req, res) => {
+  await prisma.scoreLog.deleteMany();
+  await prisma.player.updateMany({ data: { score: 0, extraTickets: false, doublePoints: false } });
+  const leaderboard = await getLeaderboard();
+  io.emit('leaderboardUpdate', leaderboard);
+  res.json({ message: 'All scores have been reset.' });
+});
+
+// ─── BINGO CARDS (GREEN AI GALAXY THEME) ──────────────────────────────────────
+app.post('/api/cards/generate', async (req, res) => {
+  const { count = 100 } = req.body;
+  const cards = [];
+  for (let i = 0; i < count; i++) {
+    const nums = new Set<number>();
+    while (nums.size < 24) nums.add(Math.floor(Math.random() * 75) + 1);
+    const cardId = `#CARD-${String(Math.floor(Math.random() * 1000000)).padStart(6, '0')}`;
+    cards.push({ id: cardId, grid: JSON.stringify(Array.from(nums)) });
+  }
+  try {
+    await prisma.bingoCard.createMany({ data: cards });
+  } catch { /* ignore duplicates */ }
+  res.json({ message: `Generated ${cards.length} cards` });
+});
+
+app.get('/api/cards/print', async (req, res) => {
+  const count = parseInt(req.query.count as string) || 2;
+  const cards = await prisma.bingoCard.findMany({ take: count });
+  if (!cards.length) return res.status(404).json({ error: 'No cards found.' });
+
+  const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 0 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename=bingo_cards.pdf');
+  doc.pipe(res);
+
+  const drawCard = (xOffset: number, card: any) => {
+    const cardWidth = 421;
+    const cardHeight = 595;
+    const pad = 20;
+
+    // Base dark fill
+    doc.rect(xOffset, 0, cardWidth, cardHeight).fill('#020617');
+
+    // Embed background image
+    try {
+      const candidates = [
+        path.join(__dirname, 'bingo_card_bg.jpg'),
+        path.join(__dirname, '..', 'src', 'bingo_card_bg.jpg'),
+        path.join(process.cwd(), 'src', 'bingo_card_bg.jpg'),
+        path.join(process.cwd(), 'backend', 'src', 'bingo_card_bg.jpg')
+      ];
+      const foundBg = candidates.find(p => fs.existsSync(p));
+      if (foundBg) {
+        doc.image(foundBg, xOffset, 0, { width: cardWidth, height: cardHeight });
+      }
+    } catch (_) { /* skip if not found */ }
+
+    // Dark overlay for readability
+    doc.rect(xOffset, 0, cardWidth, cardHeight).fillColor('#000000', 0.5).fill();
+
+    // Glowing border
+    doc.rect(xOffset + pad, pad, cardWidth - pad * 2, cardHeight - pad * 2)
+       .lineWidth(3).stroke('#10b981');
+    doc.rect(xOffset + pad + 3, pad + 3, cardWidth - pad * 2 - 6, cardHeight - pad * 2 - 6)
+       .lineWidth(1).stroke('#065f46');
+
+    // Title
+    doc.font('Helvetica-Bold').fontSize(20).fillColor('#34d399')
+       .text('MathFest: AI Speed Bingo', xOffset, 32, { width: cardWidth, align: 'center' });
+
+    // Card ID badge
+    const idText = card.id;
+    doc.roundedRect(xOffset + pad + 8, 56, 120, 22, 4).fill('#065f46');
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#6ee7b7')
+       .text(idText, xOffset + pad + 8, 60, { width: 120, align: 'center' });
+
+    const gridX = xOffset + pad + 12;
+    const gridY = 88;
+    const cW = (cardWidth - pad * 2 - 24) / 5;
+    const cH = 72;
+
+    // BINGO Headers
+    ['B','I','N','G','O'].forEach((h, col) => {
+      const cx = gridX + col * cW;
+      doc.rect(cx, gridY, cW, cH).fillColor('#064e3b', 0.9).fill();
+      doc.rect(cx, gridY, cW, cH).lineWidth(1.5).stroke('#10b981');
+      doc.font('Helvetica-Bold').fontSize(32).fillColor('#a7f3d0')
+         .text(h, cx, gridY + 16, { width: cW, align: 'center' });
+    });
+
+    const numbers: number[] = JSON.parse(card.grid);
+    let ni = 0;
+    for (let row = 0; row < 5; row++) {
+      for (let col = 0; col < 5; col++) {
+        const cx = gridX + col * cW;
+        const cy = gridY + cH + row * cH;
+
+        if (row === 2 && col === 2) {
+          // FREE cell
+          doc.rect(cx, cy, cW, cH).fillColor('#065f46', 0.95).fill();
+          doc.rect(cx, cy, cW, cH).lineWidth(2).stroke('#10b981');
+          doc.font('Helvetica-Bold').fontSize(14).fillColor('#ffffff')
+             .text('FREE', cx, cy + cH / 2 - 8, { width: cW, align: 'center' });
+        } else {
+          doc.rect(cx, cy, cW, cH).fillColor('#0f172a', 0.8).fill();
+          doc.rect(cx, cy, cW, cH).lineWidth(1.2).stroke('#1e3a2f');
+          doc.font('Helvetica-Bold').fontSize(28).fillColor('#ffffff')
+             .text(numbers[ni++].toString(), cx, cy + cH / 2 - 14, { width: cW, align: 'center' });
+        }
+      }
+    }
+  };
+
+  for (let i = 0; i < cards.length; i += 2) {
+    if (i > 0) doc.addPage();
+    drawCard(0, cards[i]);
+    if (cards[i + 1]) drawCard(421, cards[i + 1]);
+    
+    // Separation line
+    doc.save().moveTo(421, 0).lineTo(421, 595)
+       .dash(8, { space: 6 }).lineWidth(1).strokeColor('#10b981').stroke().restore();
+  }
+  doc.end();
+});
+
+// ─── WEBSOCKETS ────────────────────────────────────────────────────────────────
+io.on('connection', (socket) => {
+  socket.emit('gameStateUpdate', {
+    ...gameState,
+    phaseName: PHASE_NAMES[gameState.phase],
+    patternName: gameState.phase === 2 ? PATTERN_NAMES[gameState.round] : null,
+    phaseDescription: PHASE_DESCRIPTIONS[gameState.phase],
+    pointMatrix: POINT_MATRIX[gameState.round],
+  });
+  if (currentSequence.length > 0) {
+    socket.emit('sequenceUpdate', currentSequence);
+  }
+
+  socket.on('updateGameState', (newState: Partial<typeof gameState>) => {
+    gameState = { ...gameState, ...newState };
+    broadcastState();
+  });
+
+  socket.on('loadSequence', async (data: { round: number }) => {
+    currentRound = data.round;
+    drawnNumbers.clear();
+    wipedNumbers.clear();
+    
+    // Reset per-round powers
+    gameState.usedPowers = { stealTheNumber: false, memoryWipe: false, extraTicket: false, doublePoints: false, dualCall: false };
+    gameState.dualCallActive = false;
+    gameState.dualCallRemaining = 0;
+    
+    const equations = await prisma.equation.findMany({ where: { difficulty: data.round } });
+    for (let i = equations.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [equations[i], equations[j]] = [equations[j], equations[i]];
+    }
+    currentSequence = equations;
+    
+    // Transition to Second Main Title Screen (title_hype) so round-specific wording shows
+    gameState.status = 'title_hype';
+    gameState.round = currentRound;
+    gameState.phase = 1;
+    gameState.currentEquationIndex = 0;
+    
+    broadcastSequence();
+    broadcastState();
+  });
+
+  // ── ALLISON INTRODUCTION CONTROLS ───────────────────────────────────────
+  socket.on('playAllisonLine', (data: { line: number }) => {
+    gameState.status = 'allison_intro';
+    gameState.allisonLine = data.line;
+    gameState.allisonSpeaking = true;
+    broadcastState();
+    io.emit('allisonLinePlayed', data);
+  });
+
+  socket.on('stopAllisonAudio', () => {
+    gameState.allisonSpeaking = false;
+    broadcastState();
+    io.emit('stopAllisonAudio');
+  });
+
+  socket.on('allisonSpeakingFinished', (data?: { line: number }) => {
+    gameState.allisonSpeaking = false;
+    broadcastState();
+  });
+
+  // ── MATH ERRORS / TACTICAL POWERS ───────────────────────────────────────
+  socket.on('verifyMathError', (data: { playerName: string }) => {
+    gameState.status = 'math_error_verifying';
+    gameState.mathErrorPlayerName = data.playerName;
+    broadcastState();
+  });
+
+  socket.on('mathErrorClaimed', async (data: { playerName: string }) => {
+    gameState.status = 'math_error';
+    gameState.mathErrorPlayerName = data.playerName;
+    broadcastState();
+
+    const round = gameState.round || 1;
+    const errorPoints = getMathErrorPoints(round);
+
+    if (data.playerName) {
+      try {
+        let player = await prisma.player.findUnique({ where: { name: data.playerName } });
+        if (!player) {
+          player = await prisma.player.create({ data: { name: data.playerName, score: 0 } });
+        }
+        await prisma.player.update({
+          where: { id: player.id },
+          data: { score: { increment: errorPoints } }
+        });
+        await prisma.scoreLog.create({
+          data: {
+            playerId: player.id,
+            cardId: SYSTEM_CARD_ID,
+            round: gameState.round || 1,
+            phase: gameState.phase || 1,
+            points: errorPoints,
+            reason: `Math Error Claimed (+${errorPoints} pts)`
+          }
+        });
+        const leaderboard = await getLeaderboard();
+        io.emit('leaderboardUpdate', leaderboard);
+        const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+        io.emit('playersUpdate', allPlayers);
+
+        if ((gameState.status as string) === 'leaderboard') {
+          const lb = await getLeaderboard(gameState.round);
+          io.emit('showLeaderboardStage', { leaderboard: lb, mode: 'round', round: gameState.round });
+        }
+      } catch (err) {
+        console.error('Error awarding math error points:', err);
+      }
+    }
+    
+    setTimeout(() => {
+      if (gameState.status === 'math_error') {
+        gameState.status = 'power_selection';
+        gameState.highlightedPower = ''; // Reset any previously highlighted power
+        broadcastState();
+      }
+    }, 3000);
+  });
+
+  socket.on('mathErrorFalseAlarm', async (data?: { playerName?: string }) => {
+    gameState.status = 'math_error_false';
+    gameState.mathErrorPlayerName = data?.playerName ?? '';
+    broadcastState();
+    if (data?.playerName) {
+      try {
+        const player = await prisma.player.findUnique({ where: { name: data.playerName } });
+        if (player) {
+          await prisma.player.update({
+            where: { id: player.id },
+            data: { score: player.score - 100 }
+          });
+          await prisma.scoreLog.create({
+            data: {
+              playerId: player.id,
+              cardId: SYSTEM_CARD_ID,
+              round: gameState.round || 1,
+              phase: gameState.phase || 1,
+              points: -100,
+              reason: 'False Alarm (Math Error Claimed)'
+            }
+          });
+          const leaderboard = await getLeaderboard();
+          io.emit('leaderboardUpdate', leaderboard);
+          const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+          io.emit('playersUpdate', allPlayers);
+
+          if ((gameState.status as string) === 'leaderboard') {
+            const lb = await getLeaderboard(gameState.round);
+            io.emit('showLeaderboardStage', { leaderboard: lb, mode: 'round', round: gameState.round });
+          }
+        }
+      } catch (err) {
+        console.error('Error handling math error false alarm:', err);
+      }
+    }
+  });
+
+  socket.on('bingoClaimed', (data: { playerName: string }) => {
+    gameState.status = 'bingo_claimed_by';
+    gameState.verifyingPlayerName = data.playerName;
+    broadcastState();
+    setTimeout(() => {
+      if (gameState.status === 'bingo_claimed_by') {
+        gameState.status = 'verifying_buildup';
+        broadcastState();
+      }
+    }, 3000);
+  });
+
+  socket.on('highlightPower', (data: { power: string }) => {
+    gameState.status = 'power_selection';
+    gameState.highlightedPower = data.power;
+    broadcastState();
+  });
+
+  socket.on('activatePower', (data: { power: string; playerName: string; targetNumber?: string; drawnNumber?: string }) => {
+    gameState.status = 'power_activated';
+    gameState.activatedPower = data.power;
+    gameState.mathErrorPlayerName = data.playerName;
+    gameState.powerTargetNumber = data.targetNumber || '';
+    gameState.powerDrawnNumber = data.drawnNumber || '';
+    broadcastState();
+  });
+
+  socket.on('showLeaderboard', async (data: { mode: 'cumulative' | 'round'; round?: number }) => {
+    gameState.status = 'leaderboard';
+    const lb = await getLeaderboard(data.mode === 'round' ? data.round : undefined);
+    io.emit('showLeaderboardStage', { leaderboard: lb, mode: data.mode, round: data.round });
+    broadcastState();
+  });
+});
+
+const PORT = 3001;
+server.listen(PORT, () => console.log(`Backend → http://localhost:${PORT}`));

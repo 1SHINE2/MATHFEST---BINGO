@@ -1,0 +1,295 @@
+{
+  "1": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_1/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_1/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_1/line_3.mp3"
+    }
+  ],
+  "2": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_2/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_2/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_2/line_3.mp3"
+    }
+  ],
+  "3": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_3/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_3/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_3/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_3/line_4.mp3"
+    }
+  ],
+  "4": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_4/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_4/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_4/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_4/line_4.mp3"
+    }
+  ],
+  "5": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_5/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_5/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_5/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_5/line_4.mp3"
+    }
+  ],
+  "6": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_6/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_6/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_6/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINES.mp3",
+      "url": "/audio/mechanics/slide_6/line_4.mp3"
+    }
+  ],
+  "7": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_7/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_7/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_7/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_7/line_4.mp3"
+    }
+  ],
+  "8": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_8/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_8/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_8/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_8/line_4.mp3"
+    },
+    {
+      "line": 5,
+      "origName": "5TH LINE.mp3",
+      "url": "/audio/mechanics/slide_8/line_5.mp3"
+    }
+  ],
+  "9": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_9/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_9/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_9/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_9/line_4.mp3"
+    },
+    {
+      "line": 5,
+      "origName": "5TH LINE.mp3",
+      "url": "/audio/mechanics/slide_9/line_5.mp3"
+    }
+  ],
+  "10": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_10/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_10/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_10/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_10/line_4.mp3"
+    }
+  ],
+  "11": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_11/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_11/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_11/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_11/line_4.mp3"
+    }
+  ],
+  "12": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_12/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_12/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_12/line_3.mp3"
+    },
+    {
+      "line": 4,
+      "origName": "4TH LINE.mp3",
+      "url": "/audio/mechanics/slide_12/line_4.mp3"
+    }
+  ],
+  "13": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_13/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_13/line_2.mp3"
+    },
+    {
+      "line": 3,
+      "origName": "3RD LINE.mp3",
+      "url": "/audio/mechanics/slide_13/line_3.mp3"
+    }
+  ],
+  "14": [
+    {
+      "line": 1,
+      "origName": "1ST LINE.mp3",
+      "url": "/audio/mechanics/slide_14/line_1.mp3"
+    },
+    {
+      "line": 2,
+      "origName": "2ND LINE.mp3",
+      "url": "/audio/mechanics/slide_14/line_2.mp3"
+    }
+  ]
+}

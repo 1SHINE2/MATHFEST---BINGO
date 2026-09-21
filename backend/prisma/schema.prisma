@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model BingoCard {
+  id        String     @id // e.g. #CARD-000001
+  grid      String     // JSON: 24 numbers in order (index 12 = FREE space)
+  createdAt DateTime   @default(now())
+  scoreLogs ScoreLog[]
+}
+
+model Equation {
+  id           Int      @id @default(autoincrement())
+  equationText String
+  targetNumber Int?     // 1-75, null if Math Error
+  difficulty   Int      // 1-5 (maps to Rounds 1-5)
+  isError      Boolean  @default(false)
+  createdAt    DateTime @default(now())
+}
+
+model Player {
+  id           Int        @id @default(autoincrement())
+  name         String     @unique
+  score        Int        @default(0)
+  extraTickets Boolean    @default(false)
+  doublePoints Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  scoreLogs    ScoreLog[]
+}
+
+// Logs every individual score event (win or penalty)
+model ScoreLog {
+  id         Int      @id @default(autoincrement())
+  playerId   Int
+  cardId     String
+  round      Int      // 1-5
+  phase      Int      // 1 = Line, 2 = Pattern, 3 = Blackout
+  points     Int      // positive = award, negative = penalty
+  reason     String   // "Line Bingo", "X-Pattern", "Blackout", "False Alarm", etc.
+  createdAt  DateTime @default(now())
+
+  player     Player   @relation(fields: [playerId], references: [id])
+  card       BingoCard @relation(fields: [cardId], references: [id])
+}
