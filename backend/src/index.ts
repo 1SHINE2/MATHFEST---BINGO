@@ -816,30 +816,38 @@ io.on('connection', (socket) => {
 
 // ─── REGISTRATION ─────────────────────────────────────────────────────────────
 
-// Nodemailer transporter — auto-detects Gmail App Passwords, strips spaces, falls back to dev mode
+// Nodemailer transporter — uses SSL port 465 with timeouts to bypass cloud port 587 blocks
 function createEmailTransporter() {
   const smtpUser = process.env.SMTP_USER?.trim();
   const rawPass = process.env.SMTP_PASS || '';
   const smtpPass = rawPass.replace(/\s+/g, ''); // strip any spaces from Gmail App Passwords!
-  const smtpHost = process.env.SMTP_HOST?.trim();
+  const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
 
   if (smtpUser && smtpPass) {
-    console.log(`📧 Configured Nodemailer with Gmail SMTP for user: ${smtpUser}`);
+    console.log(`📧 Configured Nodemailer SSL Port 465 for Gmail user: ${smtpUser}`);
     return nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true, // SSL port 465 is open on Render (port 587 is blocked)
       auth: { user: smtpUser, pass: smtpPass },
       tls: { rejectUnauthorized: false },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000,
     });
   }
 
-  if (smtpHost) {
+  if (smtpHost && smtpHost !== 'smtp.gmail.com') {
     console.log(`📧 Configured Nodemailer with Custom SMTP host: ${smtpHost}`);
     return nodemailer.createTransport({
       host: smtpHost,
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true',
+      port: parseInt(process.env.SMTP_PORT || '465'),
+      secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
       auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
       tls: { rejectUnauthorized: false },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 5000,
     });
   }
 
@@ -848,6 +856,7 @@ function createEmailTransporter() {
 }
 
 const emailTransporter = createEmailTransporter();
+
 
 
 function generatePin(): string {

@@ -831,22 +831,6 @@ export default function Admin() {
                     {SOCKET_URL || 'https://mathfest-bingo.onrender.com (Proxy)'}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={async () => {
-                      const email = prompt('Enter recipient email to test Gmail SMTP dispatch:', 'jerichoygot8@gmail.com');
-                      if (!email) return;
-                      try {
-                        const res = await fetch(`${SOCKET_URL}/api/admin/test-email?email=${encodeURIComponent(email)}`);
-                        const data = await res.json();
-                        if (res.ok) alert(`✓ SUCCESS!\n\n${data.message}`);
-                        else alert(`❌ GMAIL SMTP ERROR:\n\n${data.error}`);
-                      } catch (err: any) { alert(`❌ Connection Error: ${err.message}`); }
-                    }}
-                    className="px-3 py-1.5 bg-emerald-950/60 hover:bg-emerald-800/60 border border-emerald-700/60 text-emerald-300 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1"
-                  >
-                    📧 Test Gmail Dispatch
-                  </button>
                   <button
                     onClick={() => {
                       const url = prompt(
@@ -862,8 +846,9 @@ export default function Admin() {
                   >
                     ⚙️ Switch Server Database →
                   </button>
-                </div>
               </div>
+
+
 
 
               {/* Header */}
