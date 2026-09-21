@@ -296,7 +296,10 @@ app.post('/api/game/resume', (req, res) => {
 // ─── PLAYERS ──────────────────────────────────────────────────────────────────
 app.get('/api/players', async (_req, res) => {
   try {
-    const players = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+    const players = await prisma.player.findMany({
+      where: { isVerified: true },
+      orderBy: { name: 'asc' },
+    });
     res.json(players);
   } catch {
     res.status(500).json({ error: 'Failed to fetch players' });
@@ -310,10 +313,12 @@ app.post('/api/players', async (req, res) => {
   try {
     let player = await prisma.player.findUnique({ where: { name: trimmedName } });
     if (!player) {
-      player = await prisma.player.create({ data: { name: trimmedName, score: 0 } });
+      player = await prisma.player.create({ data: { name: trimmedName, score: 0, isVerified: true } });
+    } else if (!player.isVerified) {
+      player = await prisma.player.update({ where: { id: player.id }, data: { isVerified: true } });
     }
-    const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
-    io.emit('playersUpdate', allPlayers);
+    const verifiedPlayers = await prisma.player.findMany({ where: { isVerified: true }, orderBy: { name: 'asc' } });
+    io.emit('playersUpdate', verifiedPlayers);
     res.json(player);
   } catch (err) {
     res.status(500).json({ error: 'Failed to create or fetch player' });
@@ -326,8 +331,8 @@ app.delete('/api/players/:id', async (req, res) => {
   try {
     await prisma.scoreLog.deleteMany({ where: { playerId: id } });
     await prisma.player.delete({ where: { id } });
-    const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
-    io.emit('playersUpdate', allPlayers);
+    const verifiedPlayers = await prisma.player.findMany({ where: { isVerified: true }, orderBy: { name: 'asc' } });
+    io.emit('playersUpdate', verifiedPlayers);
     const leaderboard = await getLeaderboard();
     io.emit('leaderboardUpdate', leaderboard);
     res.json({ success: true });
@@ -335,6 +340,7 @@ app.delete('/api/players/:id', async (req, res) => {
     res.status(404).json({ error: 'Player not found' });
   }
 });
+
 
 
 app.post('/api/verify', async (req, res) => {
@@ -445,7 +451,7 @@ app.post('/api/game/advance-phase', async (_req, res) => {
 async function getLeaderboard(round?: number) {
   let playersData: any[];
   if (round) {
-    const allPlayers = await prisma.player.findMany();
+    const allPlayers = await prisma.player.findMany({ where: { isVerified: true } });
     const logs = await prisma.scoreLog.groupBy({ by: ['playerId'], where: { round }, _sum: { points: true } });
     const scoreMap = new Map(logs.map((l: any) => [l.playerId, l._sum.points ?? 0]));
 
@@ -457,10 +463,11 @@ async function getLeaderboard(round?: number) {
       doublePoints: p.doublePoints
     }));
   } else {
-    playersData = await prisma.player.findMany({ orderBy: { score: 'desc' }, take: 10 });
+    playersData = await prisma.player.findMany({ where: { isVerified: true }, orderBy: { score: 'desc' }, take: 10 });
   }
   return playersData.sort((a, b) => b.score - a.score).slice(0, 10);
 }
+
 
 app.get('/api/leaderboard', async (req, res) => {
   const round = req.query.round ? parseInt(req.query.round as string) : undefined;

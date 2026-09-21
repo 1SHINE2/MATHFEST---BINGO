@@ -4,7 +4,7 @@ import {
   Play, Pause, FastForward, Printer,
   Trophy, CheckCircle, XCircle, ChevronRight, ChevronDown, RefreshCw, Zap, RotateCcw, Home, Users, Plus, X, Menu, BookOpen, MonitorPlay, Cpu, Volume2, Radio, Square
 } from 'lucide-react';
-import { getBackendUrl, setCustomBackendUrl } from './utils';
+import { getBackendUrl, setCustomBackendUrl, DEFAULT_PUBLIC_BACKEND } from './utils';
 
 const SOCKET_URL = getBackendUrl();
 
@@ -236,19 +236,55 @@ export default function Admin() {
   const emit = useCallback((event: string, data?: any) => socketRef.current?.emit(event, data), []);
 
   const refreshPlayers = async () => {
-    const res = await fetch(`${SOCKET_URL}/api/players`);
-    const data = await res.json();
-    setPlayerList(data);
-    return data as Player[];
+    try {
+      const res = await fetch(`${SOCKET_URL}/api/players`);
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        setPlayerList(data);
+        return data as Player[];
+      } else if (SOCKET_URL !== DEFAULT_PUBLIC_BACKEND) {
+        const cloudRes = await fetch(`${DEFAULT_PUBLIC_BACKEND}/api/players`).catch(() => null);
+        if (cloudRes && cloudRes.ok) {
+          const cloudData = await cloudRes.json();
+          if (Array.isArray(cloudData) && cloudData.length > 0) {
+            setPlayerList(cloudData);
+            return cloudData as Player[];
+          }
+        }
+      }
+      setPlayerList(data || []);
+      return (data || []) as Player[];
+    } catch {
+      return [] as Player[];
+    }
   };
 
   const refreshRegisteredPlayers = async () => {
     try {
       const res = await fetch(`${SOCKET_URL}/api/register/players`);
       const data = await res.json();
-      setRegisteredPlayers(data);
-    } catch { /* ignore */ }
+      if (Array.isArray(data) && data.length > 0) {
+        setRegisteredPlayers(data);
+      } else if (SOCKET_URL !== DEFAULT_PUBLIC_BACKEND) {
+        const cloudRes = await fetch(`${DEFAULT_PUBLIC_BACKEND}/api/register/players`).catch(() => null);
+        if (cloudRes && cloudRes.ok) {
+          const cloudData = await cloudRes.json();
+          setRegisteredPlayers(cloudData || []);
+        } else {
+          setRegisteredPlayers(data || []);
+        }
+      } else {
+        setRegisteredPlayers(data || []);
+      }
+    } catch {
+      try {
+        const cloudRes = await fetch(`${DEFAULT_PUBLIC_BACKEND}/api/register/players`);
+        const cloudData = await cloudRes.json();
+        setRegisteredPlayers(cloudData || []);
+      } catch { /* ignore */ }
+    }
   };
+
 
   const refreshAuditLog = async () => {
     try {
