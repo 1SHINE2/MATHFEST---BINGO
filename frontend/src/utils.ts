@@ -12,7 +12,7 @@ export const getBackendUrl = (): string => {
     // 2. Vite environment variable (configured in Vercel settings)
     const meta = import.meta as any;
     if (meta && meta.env && meta.env.VITE_API_URL) {
-      return meta.env.VITE_API_URL;
+      return meta.env.VITE_API_URL.trim().replace(/\/+$/, '');
     }
 
     const { protocol, hostname, port } = window.location;
@@ -22,7 +22,12 @@ export const getBackendUrl = (): string => {
       return `${protocol}//${hostname}:3001`;
     }
 
-    // 4. Public Vercel deployment without custom env var -> fallback to public cloud backend
+    // 4. Public Vercel deployment -> use relative URL so vercel.json proxy handles requests seamlessly
+    if (hostname.includes('vercel.app')) {
+      return '';
+    }
+
+    // 5. Default fallback to public cloud backend
     return DEFAULT_PUBLIC_BACKEND;
   }
   return 'http://localhost:3001';

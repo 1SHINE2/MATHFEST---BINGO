@@ -40,6 +40,11 @@ initSystemCard();
 app.use(cors());
 app.use(express.json());
 
+// Health Check Endpoints for Cloud Deployments (Render / Vercel proxy)
+app.get('/', (_req, res) => res.json({ status: 'ok', message: 'MathFest 2026 AI Speed Bingo Backend API' }));
+app.get('/api/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+
+
 // ─── GAME STATE ────────────────────────────────────────────────────────────────
 let currentSequence: any[] = [];
 let drawnNumbers: Set<number> = new Set();
@@ -1109,9 +1114,10 @@ app.get('/api/admin/export-sheet3', async (_req, res) => {
 
 // ALL IN ONE: Combined 3-Spreadsheet Google Sheets Workbook Exporter
 app.get('/api/admin/export-all-sheets', async (_req, res) => {
-  const req1 = await fetch(`http://localhost:3001/api/admin/export-sheet1`).then(r => r.text()).catch(() => '');
-  const req2 = await fetch(`http://localhost:3001/api/admin/export-sheet2`).then(r => r.text()).catch(() => '');
-  const req3 = await fetch(`http://localhost:3001/api/admin/export-sheet3`).then(r => r.text()).catch(() => '');
+  const currentPort = process.env.PORT || 3001;
+  const req1 = await fetch(`http://127.0.0.1:${currentPort}/api/admin/export-sheet1`).then(r => r.text()).catch(() => '');
+  const req2 = await fetch(`http://127.0.0.1:${currentPort}/api/admin/export-sheet2`).then(r => r.text()).catch(() => '');
+  const req3 = await fetch(`http://127.0.0.1:${currentPort}/api/admin/export-sheet3`).then(r => r.text()).catch(() => '');
 
   const combined = [req1, '\n\n', req2, '\n\n', req3].join('\n');
   res.setHeader('Content-Type', 'text/csv');
@@ -1132,5 +1138,7 @@ app.get('/api/register/players', async (_req, res) => {
   }
 });
 
-const PORT = 3001;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 server.listen(PORT, '0.0.0.0', () => console.log(`Backend running on port ${PORT} (0.0.0.0)`));
+
+
