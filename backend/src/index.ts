@@ -816,7 +816,7 @@ io.on('connection', (socket) => {
 
 // ─── REGISTRATION ─────────────────────────────────────────────────────────────
 
-// Nodemailer transporter — uses SSL port 465 with timeouts to bypass cloud port 587 blocks
+// Nodemailer transporter — forces family: 4 (IPv4) to eliminate Render IPv6 ENETUNREACH error
 function createEmailTransporter() {
   const smtpUser = process.env.SMTP_USER?.trim();
   const rawPass = process.env.SMTP_PASS || '';
@@ -824,17 +824,18 @@ function createEmailTransporter() {
   const smtpHost = (process.env.SMTP_HOST || 'smtp.gmail.com').trim();
 
   if (smtpUser && smtpPass) {
-    console.log(`📧 Configured Nodemailer SSL Port 465 for Gmail user: ${smtpUser}`);
+    console.log(`📧 Configured Nodemailer IPv4 SSL Port 465 for Gmail user: ${smtpUser}`);
     return nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
-      secure: true, // SSL port 465 is open on Render (port 587 is blocked)
+      secure: true, // SSL port 465 is open on Render
+      family: 4, // FORCE IPv4 to eliminate Render IPv6 ENETUNREACH error!
       auth: { user: smtpUser, pass: smtpPass },
       tls: { rejectUnauthorized: false },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000,
-    });
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 8000,
+    } as any);
   }
 
   if (smtpHost && smtpHost !== 'smtp.gmail.com') {
@@ -843,19 +844,22 @@ function createEmailTransporter() {
       host: smtpHost,
       port: parseInt(process.env.SMTP_PORT || '465'),
       secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
+      family: 4, // FORCE IPv4
       auth: smtpUser ? { user: smtpUser, pass: smtpPass } : undefined,
       tls: { rejectUnauthorized: false },
-      connectionTimeout: 5000,
-      greetingTimeout: 5000,
-      socketTimeout: 5000,
-    });
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 8000,
+    } as any);
   }
+
 
   console.log('⚠️ No SMTP credentials configured. Nodemailer running in DEV console mode.');
   return nodemailer.createTransport({ jsonTransport: true });
 }
 
 const emailTransporter = createEmailTransporter();
+
 
 
 
