@@ -860,11 +860,68 @@ function createEmailTransporter() {
 
 const emailTransporter = createEmailTransporter();
 
-
-
-
 function generatePin(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+async function dispatchPinEmail(toEmail: string, name: string, pin: string) {
+  const resendKey = process.env.RESEND_API_KEY?.trim();
+  const html = `
+    <div style="font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; border-radius: 16px; max-width: 480px; margin: 0 auto;">
+      <h1 style="color: #34d399; font-size: 28px; margin-bottom: 4px;">MathFest AI Speed Bingo</h1>
+      <p style="color: #94a3b8; margin-bottom: 24px;">Welcome, <strong style="color: #fff;">${name}</strong>!</p>
+      <p style="margin-bottom: 16px;">Your 6-digit verification PIN is:</p>
+      <div style="background: #1e293b; border: 2px solid #34d399; border-radius: 12px; text-align: center; padding: 24px 0; margin-bottom: 24px;">
+        <span style="font-size: 48px; font-weight: 900; letter-spacing: 12px; color: #34d399;">${pin}</span>
+      </div>
+      <p style="color: #94a3b8; font-size: 14px;">This PIN expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
+      <hr style="border-color: #334155; margin: 24px 0;" />
+      <p style="color: #475569; font-size: 12px;">MathFest 2026 · AI Speed Bingo Registration</p>
+    </div>
+  `;
+
+  if (resendKey) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${resendKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          from: process.env.RESEND_FROM || 'MathFest Bingo <onboarding@resend.dev>',
+          to: [toEmail],
+          subject: '🎲 MathFest Bingo — Your Verification PIN',
+          html,
+        }),
+      });
+      if (res.ok) {
+        console.log(`📧 PIN Email dispatched via Resend HTTPS API to ${toEmail}`);
+        return;
+      }
+      const errJson = await res.json().catch(() => ({}));
+      console.error('❌ Resend API error response:', errJson);
+    } catch (err: any) {
+      console.error('❌ Resend API fetch error:', err.message);
+    }
+  }
+
+  try {
+    const mailOptions = {
+      from: process.env.SMTP_USER || 'noreply@mathfest.ai',
+      to: toEmail,
+      subject: '🎲 MathFest Bingo — Your Verification PIN',
+      html,
+    };
+    await emailTransporter.sendMail(mailOptions);
+    if (!process.env.SMTP_USER) {
+      console.log(`\n📧 [DEV] PIN for ${toEmail}: ${pin}\n`);
+    } else {
+      console.log(`📧 PIN Email dispatched via Nodemailer to ${toEmail}`);
+    }
+  } catch (err: any) {
+    console.error('❌ Email send error:', err.message);
+  }
 }
 
 // POST /api/register/send-pin
@@ -909,38 +966,12 @@ app.post('/api/register/send-pin', async (req, res) => {
   io.emit('playersUpdate', allPlayers);
   io.emit('playerRegistered', { name: trimmedName, email: trimmedEmail, isPending: true });
 
-  // Send email asynchronously in the background so HTTP response is instant (<50ms)
-  const mailOptions = {
-    from: process.env.SMTP_USER || 'noreply@mathfest.ai',
-    to: trimmedEmail,
-    subject: '🎲 MathFest Bingo — Your Verification PIN',
-    html: `
-      <div style="font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; padding: 32px; border-radius: 16px; max-width: 480px; margin: 0 auto;">
-        <h1 style="color: #34d399; font-size: 28px; margin-bottom: 4px;">MathFest AI Speed Bingo</h1>
-        <p style="color: #94a3b8; margin-bottom: 24px;">Welcome, <strong style="color: #fff;">${trimmedName}</strong>!</p>
-        <p style="margin-bottom: 16px;">Your 6-digit verification PIN is:</p>
-        <div style="background: #1e293b; border: 2px solid #34d399; border-radius: 12px; text-align: center; padding: 24px 0; margin-bottom: 24px;">
-          <span style="font-size: 48px; font-weight: 900; letter-spacing: 12px; color: #34d399;">${pin}</span>
-        </div>
-        <p style="color: #94a3b8; font-size: 14px;">This PIN expires in <strong>10 minutes</strong>. Do not share it with anyone.</p>
-        <hr style="border-color: #334155; margin: 24px 0;" />
-        <p style="color: #475569; font-size: 12px;">MathFest 2026 · AI Speed Bingo Registration</p>
-      </div>
-    `,
-  };
-
-  emailTransporter.sendMail(mailOptions).then(info => {
-    if (!process.env.SMTP_HOST) {
-      console.log(`\n📧 [DEV] PIN for ${trimmedEmail}: ${pin}\n`);
-    } else {
-      console.log(`📧 PIN Email dispatched to ${trimmedEmail}`);
-    }
-  }).catch(err => {
-    console.error('Email background send error:', err.message);
-  });
+  // Dispatch email asynchronously
+  dispatchPinEmail(trimmedEmail, trimmedName, pin);
 
   res.json({ success: true, message: `Verification PIN sent to ${trimmedEmail}.` });
 });
+
 
 // GET /api/admin/test-email — Test email dispatch diagnostics for Gmail SMTP
 app.get('/api/admin/test-email', async (req, res) => {
