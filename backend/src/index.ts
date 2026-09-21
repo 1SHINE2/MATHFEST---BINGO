@@ -439,9 +439,9 @@ async function getLeaderboard(round?: number) {
   if (round) {
     const allPlayers = await prisma.player.findMany();
     const logs = await prisma.scoreLog.groupBy({ by: ['playerId'], where: { round }, _sum: { points: true } });
-    const scoreMap = new Map(logs.map(l => [l.playerId, l._sum.points ?? 0]));
+    const scoreMap = new Map(logs.map((l: any) => [l.playerId, l._sum.points ?? 0]));
 
-    playersData = allPlayers.map(p => ({
+    playersData = allPlayers.map((p: any) => ({
       id: p.id,
       name: p.name,
       score: scoreMap.get(p.id) ?? 0,
