@@ -1,5 +1,6 @@
 // DEFAULT PUBLIC CLOUD BACKEND URL (Render) — Change this to your live Render backend URL if needed
-export const DEFAULT_PUBLIC_BACKEND = 'https://mathfest-bingo-backend.onrender.com';
+export const DEFAULT_PUBLIC_BACKEND = 'https://mathfest-bingo.onrender.com';
+
 
 export const getBackendUrl = (): string => {
   if (typeof window !== 'undefined') {

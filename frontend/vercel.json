@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://mathfest-bingo-backend.onrender.com/api/:path*"
+      "destination": "https://mathfest-bingo.onrender.com/api/:path*"
     }
   ]
 }

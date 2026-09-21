@@ -862,7 +862,12 @@ app.post('/api/register/send-pin', async (req, res) => {
     create: { name: trimmedName, email: trimmedEmail, verificationPin: pin, pinExpiresAt, isVerified: false },
   });
 
-  // Send email
+  // Instantly notify Admin UI connected clients about the new pending registration
+  const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+  io.emit('playersUpdate', allPlayers);
+  io.emit('playerRegistered', { name: trimmedName, email: trimmedEmail, isPending: true });
+
+  // Send email asynchronously in the background so HTTP response is instant (<50ms)
   const mailOptions = {
     from: process.env.SMTP_USER || 'noreply@mathfest.ai',
     to: trimmedEmail,
@@ -882,20 +887,19 @@ app.post('/api/register/send-pin', async (req, res) => {
     `,
   };
 
-  try {
-    const info = await emailTransporter.sendMail(mailOptions);
-    // In dev mode (jsonTransport), log the PIN to the console
+  emailTransporter.sendMail(mailOptions).then(info => {
     if (!process.env.SMTP_HOST) {
       console.log(`\n📧 [DEV] PIN for ${trimmedEmail}: ${pin}\n`);
-      console.log('[DEV] Mail JSON:', (info as any).message);
+    } else {
+      console.log(`📧 PIN Email dispatched to ${trimmedEmail}`);
     }
-  } catch (err) {
-    console.error('Email send error:', err);
-    // Still succeed — PIN is in DB; admin can look it up
-  }
+  }).catch(err => {
+    console.error('Email background send error:', err.message);
+  });
 
   res.json({ success: true, message: `Verification PIN sent to ${trimmedEmail}.` });
 });
+
 
 // POST /api/register/verify-pin
 app.post('/api/register/verify-pin', async (req, res) => {
