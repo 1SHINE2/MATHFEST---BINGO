@@ -884,16 +884,19 @@ async function dispatchPinEmail(toEmail: string, name: string, pin: string) {
     try {
       const res = await fetch(webhookUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           to: toEmail,
           subject: '🎲 MathFest Bingo — Your Verification PIN',
           html,
         }),
       });
-      if (res.ok) {
+      const responseText = await res.text();
+      if (res.ok && (responseText.includes('success') || responseText.includes('true'))) {
         console.log(`📧 PIN Email dispatched via Google Webhook HTTPS API to ${toEmail}`);
         return;
+      } else {
+        console.error(`❌ Google Webhook response was not success: ${responseText.slice(0, 200).replace(/\s+/g, ' ')}`);
       }
     } catch (err: any) {
       console.error('❌ Google Webhook email dispatch error:', err.message);
