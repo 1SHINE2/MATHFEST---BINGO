@@ -6520,15 +6520,29 @@ export default function Stage() {
     });
   };
 
-  // Play Ivanna (ElevenLabs) named MP3 — falls back to TTS if file missing
+  // Play Allison named MP3 + Sound Effects (Win FX / False Alarm FX played alongside)
   const playPersonalityLine = (category: keyof typeof VOICE_LINES): Promise<void> => {
     return new Promise(resolve => {
       if (isPreviewMode) return resolve();
       stopActiveAudio();
-      const idx = Math.floor(Math.random() * 10);
+      const idx = Math.floor(Math.random() * 5); // 5 options per category (0..4)
       const prefix = AUDIO_PREFIXES[category];
       const audio = new Audio(`/audio/${prefix}_${idx}.mp3`);
       activeAudioRef.current = audio;
+
+      // Play Sound Effect (Win FX or False Alarm FX) alongside voice audio
+      let sfx: HTMLAudioElement | null = null;
+      if (category === 'bingoValid' || category === 'mathErrorValid') {
+        sfx = new Audio('/audio/sfx/win_fx.mp3');
+        sfx.volume = 0.85;
+      } else if (category === 'bingoFalse' || category === 'mathErrorFalse') {
+        sfx = new Audio('/audio/sfx/false_alarm_fx.mp3');
+        sfx.volume = 0.85;
+      }
+
+      if (sfx) {
+        sfx.play().catch(() => {});
+      }
 
       audio.onended = () => {
         if (activeAudioRef.current === audio) activeAudioRef.current = null;
