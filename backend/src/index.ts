@@ -862,6 +862,7 @@ function generatePin(): string {
 }
 
 async function dispatchPinEmail(toEmail: string, name: string, pin: string) {
+  const webhookUrl = process.env.GMAIL_WEBHOOK_URL?.trim();
   const smtpUser = (process.env.SMTP_USER || process.env.GMAIL_USER || '').trim();
   const resendKey = process.env.RESEND_API_KEY?.trim();
   const html = `
@@ -877,6 +878,27 @@ async function dispatchPinEmail(toEmail: string, name: string, pin: string) {
       <p style="color: #475569; font-size: 12px;">MathFest 2026 · AI Speed Bingo Registration</p>
     </div>
   `;
+
+  // Priority #1: Google Apps Script Webhook (Port 443 HTTPS — 100% cloud delivery to ALL email addresses)
+  if (webhookUrl) {
+    try {
+      const res = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: toEmail,
+          subject: '🎲 MathFest Bingo — Your Verification PIN',
+          html,
+        }),
+      });
+      if (res.ok) {
+        console.log(`📧 PIN Email dispatched via Google Webhook HTTPS API to ${toEmail}`);
+        return;
+      }
+    } catch (err: any) {
+      console.error('❌ Google Webhook email dispatch error:', err.message);
+    }
+  }
 
   // First priority: Standard Gmail SMTP (sends to ALL recipient email accounts worldwide)
   if (smtpUser) {
