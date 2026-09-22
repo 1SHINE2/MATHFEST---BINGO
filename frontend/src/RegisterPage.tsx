@@ -358,6 +358,9 @@ export default function RegisterPage() {
               <p className="text-slate-400 text-xs mt-1.5 ml-1">
                 A 6-digit verification PIN will be dispatched to this email.
               </p>
+              <p className="text-amber-400/90 text-xs mt-1 ml-1 flex items-center gap-1.5 font-medium">
+                <span>📥</span> <span>Check your <strong>Spam / Junk</strong> folder if not found in your Inbox.</span>
+              </p>
             </div>
           </div>
 
@@ -411,6 +414,10 @@ export default function RegisterPage() {
               A 6-digit PIN was dispatched to <span className="text-[#00F5D4] font-bold">{formData.email}</span>.
               Enter it below to confirm your registration.
             </p>
+            <div className="mt-2.5 px-3.5 py-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center gap-2">
+              <span className="text-base">📬</span>
+              <span>Can't find it in your Inbox? Please check your <strong>Spam / Junk</strong> folder!</span>
+            </div>
           </div>
 
           <div onPaste={handlePinPaste}>
