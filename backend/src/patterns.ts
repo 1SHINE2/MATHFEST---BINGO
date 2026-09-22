@@ -77,17 +77,22 @@ const PATTERNS: Record<number, number[][]> = {
 
 // ─── CHECKER FUNCTIONS ────────────────────────────────────────────────────────
 
-// Convert the grid (24 numbers) to a 25-element array (with FREE at index 12)
+// Convert the grid (24 or 25 numbers) to a 25-element boolean array (with FREE at index 12)
 function buildGridMap(grid: number[], drawn: Set<number>): boolean[] {
-  // grid has 24 numbers, index 12 is FREE
   const cells: boolean[] = new Array(25).fill(false);
-  let gridIdx = 0;
-  for (let cellIdx = 0; cellIdx < 25; cellIdx++) {
-    if (cellIdx === 12) {
-      cells[cellIdx] = true; // FREE space always marked
-    } else {
-      cells[cellIdx] = drawn.has(grid[gridIdx]);
-      gridIdx++;
+  if (grid.length === 25) {
+    for (let i = 0; i < 25; i++) {
+      cells[i] = i === 12 || grid[i] === 0 || drawn.has(grid[i]);
+    }
+  } else {
+    let gridIdx = 0;
+    for (let cellIdx = 0; cellIdx < 25; cellIdx++) {
+      if (cellIdx === 12) {
+        cells[cellIdx] = true; // FREE space always marked
+      } else {
+        cells[cellIdx] = drawn.has(grid[gridIdx]);
+        gridIdx++;
+      }
     }
   }
   return cells;
@@ -107,8 +112,8 @@ export function checkPattern(grid: number[], drawn: Set<number>, round: number):
 }
 
 export function checkBlackout(grid: number[], drawn: Set<number>): boolean {
-  // All 24 numbers must be drawn (FREE is always free)
-  return grid.every(n => drawn.has(n));
+  // All 24 non-FREE numbers must be drawn
+  return grid.every((n, idx) => idx === 12 || n === 0 || drawn.has(n));
 }
 
 export type WinCheckResult =

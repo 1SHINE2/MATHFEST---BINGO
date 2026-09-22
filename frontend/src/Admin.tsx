@@ -89,8 +89,8 @@ type VerifyResult = {
   playerName: string;
 };
 
-type Player = { id: number; name: string; score: number; extraTickets: boolean; doublePoints: boolean };
-type RegisteredPlayer = { id: number; name: string; email: string | null; isVerified: boolean; verificationPin?: string | null; score: number; createdAt: string };
+type Player = { id: number; name: string; score: number; extraTickets: boolean; doublePoints: boolean; assignedCardId?: string | null };
+type RegisteredPlayer = { id: number; name: string; email: string | null; isVerified: boolean; verificationPin?: string | null; assignedCardId?: string | null; score: number; createdAt: string };
 
 // Reusable Player Selection Modal (defined outside Admin to prevent unmounting on state updates)
 function PlayerSelectModal({ 
@@ -116,8 +116,13 @@ function PlayerSelectModal({
         <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-2">
           {players.map(p => (
             <button key={p.id} onClick={() => onSelect(p)}
-              className="w-full text-left px-4 py-3 bg-slate-800 hover:bg-emerald-900/60 hover:border-emerald-700 border border-transparent rounded-xl text-white font-bold transition-colors">
-              {p.name}
+              className="w-full text-left px-4 py-3 bg-slate-800 hover:bg-emerald-900/60 hover:border-emerald-700 border border-transparent rounded-xl text-white font-bold transition-colors flex items-center justify-between">
+              <span>{p.name}</span>
+              {p.assignedCardId && (
+                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950 px-2.5 py-1 rounded border border-emerald-800">
+                  {p.assignedCardId}
+                </span>
+              )}
             </button>
           ))}
           {players.length === 0 && <p className="text-slate-500 text-center py-4">No participants added.</p>}
@@ -184,7 +189,7 @@ export default function Admin() {
   const [activePanel, setActivePanel] = useState<'game' | 'registration' | 'audit'>('game');
   const [registeredPlayers, setRegisteredPlayers] = useState<RegisteredPlayer[]>([]);
   const [regFilter, setRegFilter] = useState<'all' | 'verified' | 'pending'>('all');
-  const [auditLog, setAuditLog] = useState<{ id: number; timestamp: string; category: string; playerName: string; action: string; points: number | string; details: string }[]>([]);
+  const [auditLog, setAuditLog] = useState<{ id: number; timestamp: string; category: string; playerName: string; cardId?: string; action: string; points: number | string; details: string }[]>([]);
 
   useEffect(() => {
     lbRoundRef.current = lbRound;
@@ -467,7 +472,7 @@ export default function Admin() {
     emit('bingoClaimed', { playerName: player.name });
     setVerifyOpen(true);
     setVerifyResult(null);
-    setCardInput('#CARD-');
+    setCardInput(player.assignedCardId ? player.assignedCardId : '#CARD-');
   };
 
   const runVerify = async () => {
@@ -905,9 +910,10 @@ export default function Admin() {
 
               {/* Player Table */}
               <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-                <div className="grid grid-cols-[1fr_1.5fr_auto_auto_auto] text-xs font-bold uppercase tracking-widest text-slate-500 px-5 py-3 border-b border-slate-800">
+                <div className="grid grid-cols-[1fr_1.2fr_1fr_auto_auto_auto] text-xs font-bold uppercase tracking-widest text-slate-500 px-5 py-3 border-b border-slate-800">
                   <span>Name</span>
                   <span>Google Account</span>
+                  <span>Card ID</span>
                   <span className="text-center">Status</span>
                   <span className="text-center">Registered</span>
                   <span className="text-right">Actions</span>
@@ -916,9 +922,16 @@ export default function Admin() {
                   {registeredPlayers
                     .filter(p => regFilter === 'all' || (regFilter === 'verified' ? p.isVerified : !p.isVerified))
                     .map(p => (
-                      <div key={p.id} className="grid grid-cols-[1fr_1.5fr_auto_auto_auto] items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
+                      <div key={p.id} className="grid grid-cols-[1fr_1.2fr_1fr_auto_auto_auto] items-center px-5 py-3.5 hover:bg-slate-800/40 transition-colors">
                         <div className="font-semibold text-white truncate pr-3">{p.name}</div>
                         <div className="text-slate-400 font-mono text-xs truncate pr-3">{p.email || '—'}</div>
+                        <div className="text-emerald-400 font-mono text-xs font-bold truncate pr-3">
+                          {p.assignedCardId ? (
+                            <span className="bg-emerald-950/70 border border-emerald-800 px-2.5 py-1 rounded-lg">{p.assignedCardId}</span>
+                          ) : (
+                            <span className="text-slate-600 font-normal">—</span>
+                          )}
+                        </div>
                         <div className="text-center px-3">
                           {p.isVerified ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-900/50 border border-emerald-700 rounded-full text-emerald-400 text-xs font-bold">
@@ -1029,6 +1042,7 @@ export default function Admin() {
                       <th className="px-5 py-3.5">Timestamp</th>
                       <th className="px-5 py-3.5">Category</th>
                       <th className="px-5 py-3.5">Player Name</th>
+                      <th className="px-5 py-3.5">Card ID</th>
                       <th className="px-5 py-3.5">Action</th>
                       <th className="px-5 py-3.5">Points</th>
                       <th className="px-5 py-3.5">Details</th>
@@ -1036,7 +1050,7 @@ export default function Admin() {
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 font-mono">
                     {auditLog.length === 0 ? (
-                      <tr><td colSpan={6} className="px-5 py-8 text-center text-slate-500 font-sans italic">No events logged yet. Events will appear here as players register and play.</td></tr>
+                      <tr><td colSpan={7} className="px-5 py-8 text-center text-slate-500 font-sans italic">No events logged yet. Events will appear here as players register and play.</td></tr>
                     ) : (
                       auditLog.map(e => (
                         <tr key={e.id} className="hover:bg-slate-800/40 transition-colors">
@@ -1050,6 +1064,7 @@ export default function Admin() {
                             }`}>{e.category}</span>
                           </td>
                           <td className="px-5 py-3 text-white font-bold font-sans">{e.playerName}</td>
+                          <td className="px-5 py-3 text-emerald-400 font-bold font-mono text-xs">{e.cardId || '—'}</td>
                           <td className="px-5 py-3 text-slate-200">{e.action}</td>
                           <td className="px-5 py-3 text-emerald-400 font-bold">{e.points}</td>
                           <td className="px-5 py-3 text-slate-400 text-xs font-sans">{e.details}</td>

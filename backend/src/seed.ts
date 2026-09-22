@@ -218,6 +218,51 @@ function generateUniqueEquation(target: number, round: number): string {
   throw new Error("Could not generate unique equation");
 }
 
+export function generateCardGrid(): number[] {
+  const pickUnique = (min: number, max: number, count: number): number[] => {
+    const set = new Set<number>();
+    while (set.size < count) {
+      set.add(Math.floor(Math.random() * (max - min + 1)) + min);
+    }
+    return Array.from(set);
+  };
+
+  const b = pickUnique(1, 15, 5);
+  const i = pickUnique(16, 30, 5);
+  const n = pickUnique(31, 45, 4); // 4 numbers, index 12 is FREE = 0
+  const g = pickUnique(46, 60, 5);
+  const o = pickUnique(61, 75, 5);
+
+  return [
+    b[0], i[0], n[0], g[0], o[0],
+    b[1], i[1], n[1], g[1], o[1],
+    b[2], i[2],    0, g[2], o[2], // index 12 = 0 (FREE)
+    b[3], i[3], n[2], g[3], o[3],
+    b[4], i[4], n[3], g[4], o[4],
+  ];
+}
+
+export async function seedBingoCards(dbClient?: PrismaClient, count: number = 1000) {
+  const p = dbClient || prisma;
+  console.log('Clearing old bingo cards data...');
+  await p.scoreLog.deleteMany();
+  await p.bingoCard.deleteMany();
+
+  const cardsToInsert = [];
+  for (let idx = 0; idx < count; idx++) {
+    const cardId = `#CARD-${String(idx).padStart(6, '0')}`;
+    const grid = generateCardGrid();
+    cardsToInsert.push({
+      id: cardId,
+      grid: JSON.stringify(grid),
+    });
+  }
+
+  console.log(`Seeding ${cardsToInsert.length} standard B-I-N-G-O cards (#CARD-000000 to #CARD-000999)...`);
+  await p.bingoCard.createMany({ data: cardsToInsert });
+  console.log('Done seeding bingo cards!');
+}
+
 export async function seedDatabase(dbClient?: PrismaClient) {
   const p = dbClient || prisma;
   console.log('Clearing old equations data...');
@@ -259,6 +304,9 @@ export async function seedDatabase(dbClient?: PrismaClient) {
     data: equationsToInsert
   });
   console.log('Done seeding equations!');
+
+  // Seed 1,000 Bingo Cards (#CARD-000000 to #CARD-000999)
+  await seedBingoCards(p, 1000);
 }
 
 if (require.main === module) {

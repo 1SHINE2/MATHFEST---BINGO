@@ -352,11 +352,20 @@ app.delete('/api/players/:id', async (req, res) => {
 
 
 
+function normalizeCardId(input: string): string {
+  if (!input) return '';
+  const digits = input.replace(/\D/g, '');
+  if (!digits) return input.trim().toUpperCase();
+  const padded = digits.padStart(6, '0');
+  return `#CARD-${padded}`;
+}
+
 app.post('/api/verify', async (req, res) => {
   const { cardId, playerName } = req.body as { cardId: string; playerName: string };
 
   try {
-    const card = await prisma.bingoCard.findUnique({ where: { id: cardId } });
+    const targetCardId = normalizeCardId(cardId);
+    const card = await prisma.bingoCard.findUnique({ where: { id: targetCardId } });
     if (!card) return res.status(404).json({ error: `Card "${cardId}" not found.` });
 
     const grid: number[] = JSON.parse(card.grid);
@@ -529,100 +538,100 @@ app.post('/api/cards/generate', async (req, res) => {
 
 app.get('/api/cards/print', async (req, res) => {
   const count = parseInt(req.query.count as string) || 2;
-  const cards = await prisma.bingoCard.findMany({ take: count });
+  const cards = await prisma.bingoCard.findMany({ take: count, orderBy: { id: 'asc' } });
   if (!cards.length) return res.status(404).json({ error: 'No cards found.' });
 
-  const doc = new PDFDocument({ layout: 'landscape', size: 'A4', margin: 0 });
+  // US Letter Landscape Short Bond Paper: 792 x 612 pt (11 x 8.5 in)
+  const doc = new PDFDocument({ size: [792, 612], margin: 0 });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', 'attachment; filename=bingo_cards.pdf');
+  res.setHeader('Content-Disposition', 'inline; filename=bingo_cards.pdf');
   doc.pipe(res);
 
   const drawCard = (xOffset: number, card: any) => {
-    const cardWidth = 421;
-    const cardHeight = 595;
-    const pad = 20;
+    const cardWidth = 360;
+    const cardHeight = 564;
+    const cardX = xOffset + 18;
+    const cardY = 24;
 
-    // Base dark fill
-    doc.rect(xOffset, 0, cardWidth, cardHeight).fill('#020617');
+    doc.save();
+    // White background
+    doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 16).fill('#FFFFFF');
 
-    // Embed background image
-    try {
-      const candidates = [
-        path.join(__dirname, 'bingo_card_bg.jpg'),
-        path.join(__dirname, '..', 'src', 'bingo_card_bg.jpg'),
-        path.join(process.cwd(), 'src', 'bingo_card_bg.jpg'),
-        path.join(process.cwd(), 'backend', 'src', 'bingo_card_bg.jpg')
-      ];
-      const foundBg = candidates.find(p => fs.existsSync(p));
-      if (foundBg) {
-        doc.image(foundBg, xOffset, 0, { width: cardWidth, height: cardHeight });
-      }
-    } catch (_) { /* skip if not found */ }
+    // Outer double cyan border
+    doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 16).lineWidth(2.5).stroke('#4FA8D5');
+    doc.roundedRect(cardX + 4, cardY + 4, cardWidth - 8, cardHeight - 8, 12).lineWidth(1).stroke('#4FA8D5');
 
-    // Dark overlay for readability
-    doc.rect(xOffset, 0, cardWidth, cardHeight).fillColor('#000000', 0.5).fill();
+    // Header Title Box: "MATHFEST: AI SPEED BINGO"
+    doc.roundedRect(cardX + 14, cardY + 14, cardWidth - 28, 48, 10).lineWidth(1.5).stroke('#4FA8D5');
+    doc.font('Helvetica-Bold').fontSize(19).fillColor('#0B1938')
+       .text('MATHFEST: AI SPEED BINGO', cardX + 14, cardY + 28, { width: cardWidth - 28, align: 'center' });
 
-    // Glowing border
-    doc.rect(xOffset + pad, pad, cardWidth - pad * 2, cardHeight - pad * 2)
-       .lineWidth(3).stroke('#10b981');
-    doc.rect(xOffset + pad + 3, pad + 3, cardWidth - pad * 2 - 6, cardHeight - pad * 2 - 6)
-       .lineWidth(1).stroke('#065f46');
+    const gridX = cardX + 14;
+    const gridY = cardY + 70;
+    const totalGridWidth = cardWidth - 28; // 332 pt
+    const colW = totalGridWidth / 5; // 66.4 pt
+    const headerH = 36;
+    const rowH = 75;
 
-    // Title
-    doc.font('Helvetica-Bold').fontSize(20).fillColor('#34d399')
-       .text('MathFest: AI Speed Bingo', xOffset, 32, { width: cardWidth, align: 'center' });
-
-    // Card ID badge
-    const idText = card.id;
-    doc.roundedRect(xOffset + pad + 8, 56, 120, 22, 4).fill('#065f46');
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#6ee7b7')
-       .text(idText, xOffset + pad + 8, 60, { width: 120, align: 'center' });
-
-    const gridX = xOffset + pad + 12;
-    const gridY = 88;
-    const cW = (cardWidth - pad * 2 - 24) / 5;
-    const cH = 72;
-
-    // BINGO Headers
-    ['B','I','N','G','O'].forEach((h, col) => {
-      const cx = gridX + col * cW;
-      doc.rect(cx, gridY, cW, cH).fillColor('#064e3b', 0.9).fill();
-      doc.rect(cx, gridY, cW, cH).lineWidth(1.5).stroke('#10b981');
-      doc.font('Helvetica-Bold').fontSize(32).fillColor('#a7f3d0')
-         .text(h, cx, gridY + 16, { width: cW, align: 'center' });
+    // Header Pills (B I N G O)
+    const letters = ['B', 'I', 'N', 'G', 'O'];
+    letters.forEach((letter, colIdx) => {
+      const cx = gridX + colIdx * colW + 2;
+      const cy = gridY;
+      const cw = colW - 4;
+      doc.roundedRect(cx, cy, cw, headerH, 8).lineWidth(1.5).stroke('#4FA8D5');
+      doc.font('Helvetica-Bold').fontSize(22).fillColor('#0B1938')
+         .text(letter, cx, cy + 8, { width: cw, align: 'center' });
     });
 
+    // 5x5 Matrix Grid
     const numbers: number[] = JSON.parse(card.grid);
-    let ni = 0;
-    for (let row = 0; row < 5; row++) {
-      for (let col = 0; col < 5; col++) {
-        const cx = gridX + col * cW;
-        const cy = gridY + cH + row * cH;
+    const matrixTop = gridY + headerH + 8; // cardY + 114
 
-        if (row === 2 && col === 2) {
-          // FREE cell
-          doc.rect(cx, cy, cW, cH).fillColor('#065f46', 0.95).fill();
-          doc.rect(cx, cy, cW, cH).lineWidth(2).stroke('#10b981');
-          doc.font('Helvetica-Bold').fontSize(14).fillColor('#ffffff')
-             .text('FREE', cx, cy + cH / 2 - 8, { width: cW, align: 'center' });
+    // Outer grid border
+    doc.rect(gridX, matrixTop, totalGridWidth, rowH * 5).lineWidth(1.5).stroke('#4FA8D5');
+
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        const cx = gridX + c * colW;
+        const cy = matrixTop + r * rowH;
+        
+        doc.rect(cx, cy, colW, rowH).lineWidth(1).stroke('#4FA8D5');
+
+        const gridIdx = r * 5 + c;
+        if (r === 2 && c === 2) {
+          doc.font('Helvetica-Bold').fontSize(20).fillColor('#0B1938')
+             .text('FREE', cx, cy + (rowH / 2) - 10, { width: colW, align: 'center' });
         } else {
-          doc.rect(cx, cy, cW, cH).fillColor('#0f172a', 0.8).fill();
-          doc.rect(cx, cy, cW, cH).lineWidth(1.2).stroke('#1e3a2f');
-          doc.font('Helvetica-Bold').fontSize(28).fillColor('#ffffff')
-             .text(numbers[ni++].toString(), cx, cy + cH / 2 - 14, { width: cW, align: 'center' });
+          const numVal = numbers[gridIdx];
+          doc.font('Helvetica-Bold').fontSize(32).fillColor('#0B1938')
+             .text(String(numVal), cx, cy + (rowH / 2) - 16, { width: colW, align: 'center' });
         }
       }
     }
+
+    // Bottom Badge: #CARD - XXXXXX
+    const badgeW = 150;
+    const badgeH = 26;
+    const badgeX = cardX + (cardWidth - badgeW) / 2;
+    const badgeY = cardY + cardHeight - 13;
+
+    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 6).fill('#FFFFFF');
+    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 6).lineWidth(1.5).stroke('#4FA8D5');
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#0B1938')
+       .text(card.id, badgeX, badgeY + 6, { width: badgeW, align: 'center' });
+
+    doc.restore();
   };
 
   for (let i = 0; i < cards.length; i += 2) {
     if (i > 0) doc.addPage();
-    drawCard(0, cards[i]);
-    if (cards[i + 1]) drawCard(421, cards[i + 1]);
+    drawCard(0, cards[i]); // Left card
+    if (cards[i + 1]) drawCard(396, cards[i + 1]); // Right card
     
-    // Separation line
-    doc.save().moveTo(421, 0).lineTo(421, 595)
-       .dash(8, { space: 6 }).lineWidth(1).strokeColor('#10b981').stroke().restore();
+    // Central Dotted Cut Line
+    doc.save().moveTo(396, 12).lineTo(396, 600)
+       .dash(6, { space: 4 }).lineWidth(1).strokeColor('#94A3B8').stroke().restore();
   }
   doc.end();
 });
@@ -1040,7 +1049,7 @@ app.post('/api/register/verify-pin', async (req, res) => {
   if (!player) return res.status(404).json({ error: 'No registration found for this email.' });
 
   if (player.isVerified) {
-    return res.json({ success: true, alreadyVerified: true, player: { name: player.name, email: player.email } });
+    return res.json({ success: true, alreadyVerified: true, player: { name: player.name, email: player.email, assignedCardId: player.assignedCardId } });
   }
 
   if (!player.verificationPin || player.verificationPin !== pin) {
@@ -1051,18 +1060,73 @@ app.post('/api/register/verify-pin', async (req, res) => {
     return res.status(400).json({ error: 'PIN has expired. Please request a new one.' });
   }
 
-  const verified = await prisma.player.update({
+  const updated = await prisma.player.update({
     where: { email: trimmedEmail },
-    data: { isVerified: true, verificationPin: null, pinExpiresAt: null },
+    data: { verificationPin: null, pinExpiresAt: null },
   });
 
-  // Broadcast the updated player list to all admin clients
+  res.json({ success: true, player: { name: updated.name, email: updated.email, assignedCardId: updated.assignedCardId } });
+});
+
+// POST /api/register/assign-card — Step 3: Link physical card ID to player
+app.post('/api/register/assign-card', async (req, res) => {
+  const { email, cardId } = req.body as { email: string; cardId: string };
+  const trimmedEmail = email?.trim().toLowerCase();
+  const normalizedId = normalizeCardId(cardId);
+
+  if (!trimmedEmail || !normalizedId) {
+    return res.status(400).json({ error: 'Email and valid Card ID are required.' });
+  }
+
+  // 1. Verify card exists in DB
+  const card = await prisma.bingoCard.findUnique({ where: { id: normalizedId } });
+  if (!card) {
+    return res.status(404).json({ error: `Card ID "${normalizedId}" was not found in database.` });
+  }
+
+  // 2. Verify card not linked to a different player
+  const existingAssigned = await prisma.player.findFirst({
+    where: { assignedCardId: normalizedId, NOT: { email: trimmedEmail } },
+  });
+  if (existingAssigned) {
+    return res.status(409).json({ error: `Card ${normalizedId} is already linked to player "${existingAssigned.name}".` });
+  }
+
+  const updated = await prisma.player.update({
+    where: { email: trimmedEmail },
+    data: { assignedCardId: normalizedId },
+  });
+
   const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
   io.emit('playersUpdate', allPlayers);
-  io.emit('playerRegistered', { name: verified.name, email: verified.email });
-  logEvent('REGISTRATION', verified.name, 'PIN Verification Completed', 'Verified', `Email: ${verified.email}`);
 
-  res.json({ success: true, player: { name: verified.name, email: verified.email } });
+  res.json({ success: true, cardId: normalizedId, player: updated });
+});
+
+// POST /api/register/join-grid — Step 4: Official Final Verification Button
+app.post('/api/register/join-grid', async (req, res) => {
+  const { email, cardId } = req.body as { email: string; cardId: string };
+  const trimmedEmail = email?.trim().toLowerCase();
+  const normalizedId = normalizeCardId(cardId);
+
+  if (!trimmedEmail || !normalizedId) {
+    return res.status(400).json({ error: 'Email and Card ID are required.' });
+  }
+
+  const player = await prisma.player.findUnique({ where: { email: trimmedEmail } });
+  if (!player) return res.status(404).json({ error: 'Player registration record not found.' });
+
+  const verified = await prisma.player.update({
+    where: { email: trimmedEmail },
+    data: { isVerified: true, assignedCardId: normalizedId, verificationPin: null, pinExpiresAt: null },
+  });
+
+  const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
+  io.emit('playersUpdate', allPlayers);
+  io.emit('playerRegistered', { name: verified.name, email: verified.email, cardId: verified.assignedCardId });
+  logEvent('REGISTRATION', verified.name, 'Joined Tournament Grid', 'Verified', `Email: ${verified.email}`, verified.assignedCardId || '—');
+
+  res.json({ success: true, player: verified });
 });
 
 // ─── AUDIT LOGGING & GOOGLE SHEETS WEBHOOK ──────────────────────────────────────
@@ -1071,6 +1135,7 @@ type AuditLogEntry = {
   timestamp: string;
   category: string;
   playerName: string;
+  cardId: string;
   action: string;
   points: number | string;
   details: string;
@@ -1079,13 +1144,14 @@ type AuditLogEntry = {
 let auditLog: AuditLogEntry[] = [];
 let nextLogId = 1;
 
-async function logEvent(category: string, playerName: string, action: string, points: number | string = '—', details: string = '') {
+async function logEvent(category: string, playerName: string, action: string, points: number | string = '—', details: string = '', cardId: string = '—') {
   const timestamp = new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' });
   const entry: AuditLogEntry = {
     id: nextLogId++,
     timestamp,
     category,
     playerName,
+    cardId,
     action,
     points,
     details
@@ -1116,11 +1182,12 @@ app.get('/api/admin/audit-log', (_req, res) => {
 
 // GET /api/admin/export-csv — Download full event ledger for Google Sheets
 app.get('/api/admin/export-csv', (_req, res) => {
-  const headers = ['Timestamp', 'Category', 'Player Name', 'Action', 'Points', 'Details'];
+  const headers = ['Timestamp', 'Category', 'Player Name', 'Card ID', 'Action', 'Points', 'Details'];
   const rows = auditLog.map(e => [
     `"${e.timestamp}"`,
     `"${e.category}"`,
     `"${e.playerName.replace(/"/g, '""')}"`,
+    `"${(e.cardId || '—').replace(/"/g, '""')}"`,
     `"${e.action.replace(/"/g, '""')}"`,
     `"${e.points}"`,
     `"${e.details.replace(/"/g, '""')}"`
@@ -1140,7 +1207,7 @@ app.delete('/api/register/players/:id', async (req, res) => {
     if (player) {
       await prisma.scoreLog.deleteMany({ where: { playerId: id } });
       await prisma.player.delete({ where: { id } });
-      logEvent('REGISTRATION', player.name, 'Participant Registration Deleted', '—', `Email: ${player.email || 'N/A'}`);
+      logEvent('REGISTRATION', player.name, 'Participant Registration Deleted', '—', `Email: ${player.email || 'N/A'}`, player.assignedCardId || '—');
     }
     const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
     io.emit('playersUpdate', allPlayers);
@@ -1161,8 +1228,8 @@ app.post('/api/register/admin-verify/:id', async (req, res) => {
     });
     const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
     io.emit('playersUpdate', allPlayers);
-    io.emit('playerRegistered', { name: verified.name, email: verified.email });
-    logEvent('REGISTRATION', verified.name, 'Host Manual Instant Verification', 'Verified', `Email: ${verified.email || 'N/A'}`);
+    io.emit('playerRegistered', { name: verified.name, email: verified.email, cardId: verified.assignedCardId });
+    logEvent('REGISTRATION', verified.name, 'Host Manual Instant Verification', 'Verified', `Email: ${verified.email || 'N/A'}`, verified.assignedCardId || '—');
     res.json({ success: true, player: verified });
   } catch {
     res.status(500).json({ error: 'Failed to verify player' });
@@ -1176,10 +1243,10 @@ app.post('/api/register/admin-verify/:id', async (req, res) => {
 app.get('/api/admin/export-sheet1', async (_req, res) => {
   const rows: string[] = [];
   rows.push('=== SPREADSHEET 1: GAME EVENT TIMELINE ===');
-  rows.push('Timestamp,Round & Phase,Event Category,Player Name,Action,Points,Details');
+  rows.push('Timestamp,Round & Phase,Event Category,Player Name,Card ID,Action,Points,Details');
   
   auditLog.slice().reverse().forEach(e => {
-    rows.push(`"${e.timestamp}","${e.details.includes('Round') ? e.details : 'Game Event'}","${e.category}","${e.playerName.replace(/"/g, '""')}","${e.action.replace(/"/g, '""')}","${e.points}","${e.details.replace(/"/g, '""')}"`);
+    rows.push(`"${e.timestamp}","${e.details.includes('Round') ? e.details : 'Game Event'}","${e.category}","${e.playerName.replace(/"/g, '""')}","${(e.cardId || '—').replace(/"/g, '""')}","${e.action.replace(/"/g, '""')}","${e.points}","${e.details.replace(/"/g, '""')}"`);
   });
 
   res.setHeader('Content-Type', 'text/csv');
@@ -1201,7 +1268,7 @@ app.get('/api/admin/export-sheet2', async (_req, res) => {
 
   for (const p of players) {
     lines.push(`"PARTICIPANT: ${p.name.toUpperCase()}"`);
-    lines.push(`"Email: ${p.email || 'N/A'} | Status: ${p.isVerified ? 'Verified' : 'Pending'} | Current Score: ${p.score}"`);
+    lines.push(`"Email: ${p.email || 'N/A'} | Card ID: ${p.assignedCardId || 'N/A'} | Status: ${p.isVerified ? 'Verified' : 'Pending'} | Current Score: ${p.score}"`);
     lines.push('Timestamp,Round & Phase,Card / Item ID,Action / Event,Points Earned,Cumulative Score');
 
     const playerLogs = logs.filter(l => l.playerId === p.id);

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { getBackendUrl, setCustomBackendUrl } from './utils';
 
-type Step = 'form' | 'pin' | 'confirmed';
+type Step = 'form' | 'pin' | 'card' | 'join' | 'confirmed';
 
 interface FormData {
   name: string;
@@ -116,18 +116,6 @@ function CyberGridArenaBackground({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      <div className="absolute bottom-4 left-6 z-10 hidden lg:block font-mono text-[10px] text-[#00F5D4]/60 leading-tight pointer-events-none">
-        <div>LOC ID: 882-A</div>
-        <div>COORD: [42.18, 89.04]</div>
-        <div>SYS.FREQ: 1420 MHz</div>
-      </div>
-
-      <div className="absolute bottom-4 right-6 z-10 hidden lg:block font-mono text-[10px] text-right text-[#00F5D4]/60 leading-tight pointer-events-none">
-        <div>DATA STREAM // 010110</div>
-        <div className="text-emerald-400 font-bold">MATRIX: RESOLVED</div>
-        <div>LN-04 ONLINE</div>
-      </div>
-
       {/* ── 6. MAIN CONTENT CONTAINER ── */}
       <div className="relative z-20 w-full max-w-md px-4 py-8">
         {children}
@@ -142,6 +130,8 @@ export default function RegisterPage() {
   const [step, setStep] = useState<Step>('form');
   const [formData, setFormData] = useState<FormData>({ name: '', email: '' });
   const [pin, setPin] = useState(['', '', '', '', '', '']);
+  const [cardIdInput, setCardIdInput] = useState('');
+  const [assignedCardId, setAssignedCardId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -224,7 +214,8 @@ export default function RegisterPage() {
     e.preventDefault();
   };
 
-  const handleVerify = async (e: React.FormEvent) => {
+  // Step 2: Verify PIN (moves to Step 3 Booth & Card Link)
+  const handleVerifyPin = async (e: React.FormEvent) => {
     e.preventDefault();
     const pinStr = pin.join('');
     if (pinStr.length < 6) return setError('Please enter all 6 digits.');
@@ -238,6 +229,55 @@ export default function RegisterPage() {
       });
       const data = await res.json();
       if (!res.ok) return setError(data.error || 'Verification failed.');
+      setRegisteredName(data.player?.name || formData.name);
+      if (data.player?.assignedCardId) {
+        setAssignedCardId(data.player.assignedCardId);
+        setStep('join');
+      } else {
+        setStep('card');
+      }
+    } catch {
+      setError('Network error. Could not connect to host.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 3: Link Physical Card ID
+  const handleAssignCard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cardIdInput.trim()) return setError('Please enter your Bingo Card ID.');
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/register/assign-card`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email.trim().toLowerCase(), cardId: cardIdInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) return setError(data.error || 'Failed to link card.');
+      setAssignedCardId(data.cardId);
+      setStep('join');
+    } catch {
+      setError('Network error. Could not connect to host.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Step 4: Official Join Tournament Grid Button
+  const handleJoinGrid = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/register/join-grid`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email.trim().toLowerCase(), cardId: assignedCardId }),
+      });
+      const data = await res.json();
+      if (!res.ok) return setError(data.error || 'Failed to join tournament roster.');
       setRegisteredName(data.player?.name || formData.name);
       setStep('confirmed');
     } catch {
@@ -269,6 +309,8 @@ export default function RegisterPage() {
     }
   };
 
+  const stepOrder: Step[] = ['form', 'pin', 'card', 'join'];
+
   return (
     <CyberGridArenaBackground>
       {/* Brand Header */}
@@ -284,27 +326,35 @@ export default function RegisterPage() {
         <p className="text-slate-400 text-xs tracking-wider uppercase font-semibold">Player Registration Portal</p>
       </div>
 
-      {/* Step Indicator */}
-      <div className="flex items-center justify-center gap-2 mb-6">
-        {(['form', 'pin', 'confirmed'] as Step[]).map((s, idx) => {
-          const done = (s === 'form' && (step === 'pin' || step === 'confirmed')) || (s === 'pin' && step === 'confirmed');
+      {/* 4-Step Progress Indicator */}
+      <div className="flex items-center justify-center gap-1.5 mb-6">
+        {stepOrder.map((s, idx) => {
+          const currentIdx = stepOrder.indexOf(step === 'confirmed' ? 'join' : step);
+          const done = currentIdx > idx || step === 'confirmed';
           const active = step === s;
+          const labels = ['Profile', 'PIN', 'Card ID', 'Join Grid'];
+
           return (
             <React.Fragment key={s}>
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-black border-2 transition-all duration-300 ${
-                  active
-                    ? 'bg-[#00F5D4] border-[#00F5D4] text-[#090014] shadow-[0_0_18px_#00F5D4]'
-                    : done
-                    ? 'bg-[#00F5D4]/20 border-[#00F5D4] text-[#00F5D4]'
-                    : 'bg-slate-900/80 border-slate-700 text-slate-500'
-                }`}
-              >
-                {done ? '✓' : idx + 1}
-              </div>
-              {idx < 2 && (
+              <div className="flex flex-col items-center gap-1">
                 <div
-                  className={`w-12 h-0.5 transition-all duration-500 ${
+                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black border-2 transition-all duration-300 ${
+                    active
+                      ? 'bg-[#00F5D4] border-[#00F5D4] text-[#090014] shadow-[0_0_18px_#00F5D4]'
+                      : done
+                      ? 'bg-[#00F5D4]/20 border-[#00F5D4] text-[#00F5D4]'
+                      : 'bg-slate-900/80 border-slate-700 text-slate-500'
+                  }`}
+                >
+                  {done ? '✓' : idx + 1}
+                </div>
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${active ? 'text-[#00F5D4]' : done ? 'text-slate-300' : 'text-slate-600'}`}>
+                  {labels[idx]}
+                </span>
+              </div>
+              {idx < 3 && (
+                <div
+                  className={`w-8 h-0.5 mb-4 transition-all duration-500 ${
                     done ? 'bg-[#00F5D4] shadow-[0_0_8px_#00F5D4]' : 'bg-slate-800'
                   }`}
                 />
@@ -405,14 +455,14 @@ export default function RegisterPage() {
       {/* ── STEP 2: PIN Verification ── */}
       {step === 'pin' && (
         <form
-          onSubmit={handleVerify}
+          onSubmit={handleVerifyPin}
           className="bg-[#0E0124]/90 backdrop-blur-md border-2 border-[#A855F7]/60 rounded-3xl p-7 shadow-[0_0_35px_rgba(168,85,247,0.3)] space-y-6"
         >
           <div>
             <h2 className="text-xl font-black text-white mb-0.5">Check Your Email</h2>
             <p className="text-slate-300 text-xs leading-relaxed">
               A 6-digit PIN was dispatched to <span className="text-[#00F5D4] font-bold">{formData.email}</span>.
-              Enter it below to confirm your registration.
+              Enter it below to validate your PIN.
             </p>
             <div className="mt-2.5 px-3.5 py-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center gap-2">
               <span className="text-base">📬</span>
@@ -459,7 +509,7 @@ export default function RegisterPage() {
               rounded-xl font-black text-slate-950 text-base tracking-widest uppercase transition-all hover:scale-[1.02] active:scale-[0.98]
               shadow-[0_0_25px_rgba(0,245,212,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 cursor-pointer"
           >
-            {loading ? 'Verifying...' : 'Verify & Register ✓'}
+            {loading ? 'Verifying...' : 'Validate PIN →'}
           </button>
 
           <div className="flex items-center justify-between pt-1">
@@ -482,7 +532,127 @@ export default function RegisterPage() {
         </form>
       )}
 
-      {/* ── STEP 3: Confirmed ── */}
+      {/* ── STEP 3: Booth Instruction & Link Card ID ── */}
+      {step === 'card' && (
+        <form
+          onSubmit={handleAssignCard}
+          className="bg-[#0E0124]/90 backdrop-blur-md border-2 border-[#00F5D4]/60 rounded-3xl p-7 shadow-[0_0_35px_rgba(0,245,212,0.3)] space-y-5"
+        >
+          {/* Booth Banner Notice */}
+          <div className="bg-amber-950/70 border-2 border-amber-500/70 rounded-2xl p-4 text-left shadow-[0_0_20px_rgba(245,158,11,0.2)]">
+            <div className="flex items-center gap-2 text-amber-300 font-black text-sm uppercase tracking-wider mb-1">
+              <span>📍</span> <span>Step 3: Proceed to Bingo Booth</span>
+            </div>
+            <p className="text-amber-100 text-xs leading-relaxed font-semibold">
+              Please proceed to the <strong>BINGO CARD BOOTH</strong> to receive your physical Bingo Card! Once you receive your card, enter the Card ID below.
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-xl font-black text-white mb-0.5">Link Your Physical Bingo Card</h2>
+            <p className="text-slate-400 text-xs">Enter the 6-digit Card ID printed at the bottom of your physical card.</p>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-black text-[#00F5D4] uppercase tracking-widest mb-1.5">
+              Card ID Number
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={cardIdInput}
+                onChange={e => setCardIdInput(e.target.value)}
+                placeholder="e.g. 000123 or #CARD-000123"
+                autoFocus
+                className="w-full px-4 py-3.5 bg-slate-950/80 border border-slate-700 rounded-xl text-white font-mono text-lg tracking-widest
+                  placeholder-slate-600 outline-none focus:border-[#00F5D4] focus:ring-2 focus:ring-[#00F5D4]/20
+                  transition-all"
+              />
+            </div>
+            <p className="text-slate-400 text-[11px] mt-1.5 ml-1 font-mono">
+              Format: #CARD-000000 to #CARD-000999
+            </p>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2.5 bg-red-950/60 border border-red-700 rounded-xl px-4 py-3 text-red-300 text-xs leading-relaxed">
+              <span className="text-base leading-none">⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || !cardIdInput.trim()}
+            className="w-full py-4 bg-gradient-to-r from-[#00F5D4] via-[#00D4B2] to-[#0284C7] hover:from-[#00F5D4] hover:to-[#0284C7]
+              rounded-xl font-black text-slate-950 text-base tracking-widest uppercase transition-all hover:scale-[1.02] active:scale-[0.98]
+              shadow-[0_0_25px_rgba(0,245,212,0.4)] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 cursor-pointer"
+          >
+            {loading ? 'Linking Card...' : 'Link Bingo Card →'}
+          </button>
+        </form>
+      )}
+
+      {/* ── STEP 4: Join Tournament Grid Button (Final Confirmation) ── */}
+      {step === 'join' && (
+        <div className="bg-[#0E0124]/90 backdrop-blur-md border-2 border-[#D946EF]/60 rounded-3xl p-7 shadow-[0_0_40px_rgba(217,70,239,0.35)] text-center space-y-6">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.4em] text-[#D946EF] drop-shadow-[0_0_8px_#D946EF] mb-1">
+              Final Verification Step
+            </div>
+            <h2 className="text-2xl font-black text-white">Confirm &amp; Join Roster</h2>
+            <p className="text-slate-300 text-xs mt-1">
+              Review your details below and click the button to officially join the tournament.
+            </p>
+          </div>
+
+          {/* Registration Details Card */}
+          <div className="bg-slate-950/80 border border-slate-700/80 rounded-2xl p-4 text-left space-y-2.5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#00F5D4]/10 border border-[#00F5D4]/40 flex items-center justify-center text-lg">
+                🎟️
+              </div>
+              <div>
+                <div className="text-white font-black text-sm leading-none">{registeredName || formData.name}</div>
+                <div className="text-[#00F5D4] font-mono text-[11px] mt-0.5">{formData.email}</div>
+              </div>
+            </div>
+            <div className="h-px bg-slate-800" />
+            <div className="space-y-1.5 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Linked Card ID</span>
+                <span className="text-emerald-400 font-mono font-bold text-sm bg-emerald-950/60 px-2.5 py-0.5 rounded-lg border border-emerald-700">{assignedCardId}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Status</span>
+                <span className="text-amber-300 font-bold flex items-center gap-1.5">
+                  <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" /> PENDING VERIFICATION
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2.5 bg-red-950/60 border border-red-700 rounded-xl px-4 py-3 text-red-300 text-xs text-left">
+              <span className="text-base leading-none">⚠️</span>
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Official JOIN TOURNAMENT GRID Button */}
+          <button
+            onClick={handleJoinGrid}
+            disabled={loading}
+            className="w-full py-5 bg-gradient-to-r from-[#00F5D4] via-[#D946EF] to-[#FF6B35] hover:opacity-95
+              rounded-2xl font-black text-slate-950 text-lg tracking-widest uppercase transition-all hover:scale-[1.03] active:scale-[0.98]
+              shadow-[0_0_35px_rgba(0,245,212,0.6)] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2 animate-pulse"
+          >
+            <span>⚡</span> <span>JOIN TOURNAMENT GRID</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── STEP 5: Confirmed (Officially Verified & Live) ── */}
       {step === 'confirmed' && (
         <div className="bg-[#0E0124]/90 backdrop-blur-md border-2 border-[#00F5D4]/60 rounded-3xl p-7 shadow-[0_0_40px_rgba(0,245,212,0.3)] text-center">
           <div className="w-20 h-20 mx-auto mb-5 rounded-full bg-[#00F5D4]/10 border-4 border-[#00F5D4] flex items-center justify-center shadow-[0_0_30px_rgba(0,245,212,0.5)] relative">
@@ -493,13 +663,13 @@ export default function RegisterPage() {
           </div>
 
           <div className="text-xs font-black uppercase tracking-[0.4em] text-[#00F5D4] drop-shadow-[0_0_8px_#00F5D4] mb-1">
-            Registration Verified
+            Tournament Roster Verified
           </div>
           <h2 className="text-2xl font-black text-white mb-1">
             You're In, {registeredName.split(' ')[0]}!
           </h2>
           <p className="text-slate-300 text-xs mb-5">
-            You have been successfully registered for the competition roster.
+            You are officially verified and entered into the live competition roster.
           </p>
 
           <div className="bg-slate-950/80 border border-slate-700/80 rounded-2xl p-4 text-left space-y-2.5 mb-5">
@@ -516,14 +686,15 @@ export default function RegisterPage() {
             <div className="space-y-1.5 text-xs">
               <div className="flex justify-between"><span className="text-slate-400">Name</span><span className="text-white font-bold">{registeredName}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">Email</span><span className="text-[#00F5D4] font-mono text-[11px]">{formData.email}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Linked Card ID</span><span className="text-emerald-400 font-mono font-bold text-xs">{assignedCardId}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">Status</span>
-                <span className="text-[#00F5D4] font-bold flex items-center gap-1.5"><span className="w-2 h-2 bg-[#00F5D4] rounded-full animate-pulse" />Active & Verified</span>
+                <span className="text-[#00F5D4] font-bold flex items-center gap-1.5"><span className="w-2 h-2 bg-[#00F5D4] rounded-full animate-pulse" />Verified &amp; Live</span>
               </div>
             </div>
           </div>
 
           <p className="text-slate-400 text-xs leading-relaxed">
-            Your name is now live in the host controller roster. Please wait for the host to begin the event. Good luck! 🍀
+            Your card is registered and ready in the host system. Please wait for the event host to begin Round 1. Good luck! 🍀
           </p>
         </div>
       )}
