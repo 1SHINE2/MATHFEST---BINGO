@@ -69,6 +69,7 @@ type GameState = {
   currentEquationIndex: number;
   timerSeconds: number;
   maxTimerSeconds: number;
+  timerEndTime?: number | null;
   round: number;
   phase: number;
   phaseName: string;
@@ -340,17 +341,29 @@ export default function Admin() {
     await refreshPlayers();
   };
 
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (gameState.status !== 'playing') return;
+    const interval = setInterval(() => setNow(Date.now()), 200);
+    return () => clearInterval(interval);
+  }, [gameState.status]);
+
+  const displaySeconds = (gameState.status === 'playing' && gameState.timerEndTime)
+    ? Math.max(0, Math.ceil((gameState.timerEndTime - now) / 1000))
+    : gameState.timerSeconds;
+
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
-    if (gameState.status === 'playing' && gameState.timerSeconds > 0) {
-      timerRef.current = setTimeout(() => {
-        emit('updateGameState', { timerSeconds: gameState.timerSeconds - 1 });
-      }, 1000);
-    } else if (gameState.status === 'playing' && gameState.timerSeconds === 0) {
-      handleNext();
-    }
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [gameState.status, gameState.timerSeconds]);
+    if (gameState.status !== 'playing') return;
+
+    const interval = setInterval(() => {
+      if (gameState.timerEndTime && Date.now() >= gameState.timerEndTime) {
+        handleNext();
+      }
+    }, 200);
+
+    return () => clearInterval(interval);
+  }, [gameState.status, gameState.timerEndTime, gameState.currentEquationIndex]);
 
   // Game Actions
   const showMainTitle = () => emit('updateGameState', { status: 'title_main' });
@@ -1269,9 +1282,9 @@ export default function Admin() {
                   <div className="absolute top-4 right-4 text-center">
                     <div className="text-slate-500 text-xs uppercase tracking-widest mb-1">Timer</div>
                     <div className={`text-4xl font-black font-mono leading-none ${
-                      gameState.timerSeconds <= 4 ? 'text-red-400' :
-                      gameState.timerSeconds <= 8 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {gameState.timerSeconds}s
+                      displaySeconds <= 4 ? 'text-red-400' :
+                      displaySeconds <= 8 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {displaySeconds}s
                     </div>
                     <select value={gameState.maxTimerSeconds}
                       onChange={e => emit('updateGameState', { maxTimerSeconds: Number(e.target.value), timerSeconds: Number(e.target.value) })}

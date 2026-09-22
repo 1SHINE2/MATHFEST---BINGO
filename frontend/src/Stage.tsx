@@ -41,6 +41,7 @@ type GameState = {
   currentEquationIndex: number;
   timerSeconds: number;
   maxTimerSeconds: number;
+  timerEndTime?: number | null;
   round: number;
   phase: number;
   phaseName: string;
@@ -124,8 +125,8 @@ function toSpokenText(raw: string): string {
 function getWinningIndices(grid: number[], drawn: Set<number>, phase: number, round: number): Set<number> {
   const cells: boolean[] = Array.from({ length: 25 }, (_, i) => {
     if (i === 12) return true;
-    const gIdx = i < 12 ? i : i - 1;
-    return drawn.has(grid[gIdx]);
+    const val = grid.length === 25 ? grid[i] : grid[i < 12 ? i : i - 1];
+    return val === 0 || drawn.has(val);
   });
 
   if (phase === 1) {
@@ -287,7 +288,7 @@ function BingoCard({ result }: { result: VerificationResult }) {
         ))}
         {Array.from({ length: 25 }).map((_, i) => {
           const isFree = i === 12;
-          const num = isFree ? 'FREE' : result.grid[i < 12 ? i : i - 1];
+          const num = isFree ? 'FREE' : (result.grid.length === 25 ? result.grid[i] : result.grid[i < 12 ? i : i - 1]);
           const isDrawn = isFree || drawnSet.has(num as number);
           const isWin = winSet.has(i);
 
@@ -6236,6 +6237,17 @@ export default function Stage() {
   const [audioUnlocked, setAudioUnlocked] = useState(isPreviewMode);
   const activeAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (gameState.status !== 'playing') return;
+    const interval = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(interval);
+  }, [gameState.status]);
+
+  const currentTimerSeconds = (gameState.status === 'playing' && gameState.timerEndTime)
+    ? Math.max(0, Math.ceil((gameState.timerEndTime - now) / 1000))
+    : gameState.timerSeconds;
+
   // ── PRESENTATION MODE / FULLSCREEN CONTROLLER ─────────────────────────────
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showHudControls, setShowHudControls] = useState(false);
@@ -6648,7 +6660,7 @@ export default function Stage() {
 
   useEffect(() => {
     if (isPreviewMode) return;
-    if (gameState.status === 'playing' && gameState.timerSeconds > 0) {
+    if (gameState.status === 'playing' && currentTimerSeconds > 0) {
       if (!clockAudioRef.current) {
         clockAudioRef.current = new Audio('/audio/sfx/clock.mp3');
         clockAudioRef.current.volume = 0.85;
@@ -6661,7 +6673,7 @@ export default function Stage() {
         clockAudioRef.current.pause();
       }
     }
-  }, [gameState.status, gameState.timerSeconds]);
+  }, [gameState.status, currentTimerSeconds]);
 
   // ── PROBLEM COMPLETE CHIME & POWER SELECTION SFX ─────────────────────────────
   const prevEqIdxRef = useRef<number>(gameState.currentEquationIndex);
@@ -6671,14 +6683,14 @@ export default function Stage() {
     // Play chime when current problem advances or finishes
     if (
       gameState.currentEquationIndex !== prevEqIdxRef.current ||
-      (gameState.status === 'playing' && gameState.timerSeconds === 0)
+      (gameState.status === 'playing' && currentTimerSeconds === 0)
     ) {
       prevEqIdxRef.current = gameState.currentEquationIndex;
       const chime = new Audio('/audio/sfx/chime.mp3');
       chime.volume = 0.9;
       chime.play().catch(() => {});
     }
-  }, [gameState.currentEquationIndex, gameState.timerSeconds, gameState.status]);
+  }, [gameState.currentEquationIndex, currentTimerSeconds, gameState.status]);
 
   // ── TACTICAL POWER ACTIVATION SFX (plays once when admin clicks a power) ──────
   useEffect(() => {
@@ -7177,7 +7189,7 @@ export default function Stage() {
 
         {/* Dynamic Circular Speed Dial Timer matching Inspiration Image 4 */}
         <SpeedDialTimer
-          seconds={gameState.timerSeconds}
+          seconds={currentTimerSeconds}
           maxSeconds={gameState.maxTimerSeconds}
         />
       </div>

@@ -69,6 +69,7 @@ interface GameState {
   currentEquationIndex: number;
   timerSeconds: number;
   maxTimerSeconds: number;
+  timerEndTime?: number | null;
   round: number;
   phase: number;
   dualCallActive: boolean;
@@ -89,6 +90,7 @@ let gameState: GameState = {
   currentEquationIndex: 0,
   timerSeconds: 10,
   maxTimerSeconds: 10,
+  timerEndTime: null,
   round: 1,
   phase: 1,
   dualCallActive: false,
@@ -109,6 +111,9 @@ let gameState: GameState = {
 };
 
 function broadcastState() {
+  if (gameState.status !== 'playing') {
+    gameState.timerEndTime = null;
+  }
   io.emit('gameStateUpdate', {
     ...gameState,
     phaseName: PHASE_NAMES[gameState.phase],
@@ -536,6 +541,16 @@ app.post('/api/cards/generate', async (req, res) => {
   res.json({ message: `Generated ${cards.length} cards` });
 });
 
+const findFontPath = (filename: string) => {
+  const candidates = [
+    path.join(__dirname, 'fonts', filename),
+    path.join(__dirname, '..', 'src', 'fonts', filename),
+    path.join(process.cwd(), 'src', 'fonts', filename),
+    path.join(process.cwd(), 'backend', 'src', 'fonts', filename),
+  ];
+  return candidates.find(p => fs.existsSync(p)) || null;
+};
+
 app.get('/api/cards/print', async (req, res) => {
   const count = parseInt(req.query.count as string) || 2;
   const cards = await prisma.bingoCard.findMany({ take: count, orderBy: { id: 'asc' } });
@@ -547,6 +562,15 @@ app.get('/api/cards/print', async (req, res) => {
   res.setHeader('Content-Disposition', 'inline; filename=bingo_cards.pdf');
   doc.pipe(res);
 
+  const rajdhaniPath = findFontPath('Rajdhani-Bold.ttf');
+  const chakraPath = findFontPath('ChakraPetch-Bold.ttf');
+
+  if (rajdhaniPath) doc.registerFont('Rajdhani', rajdhaniPath);
+  if (chakraPath) doc.registerFont('ChakraPetch', chakraPath);
+
+  const mainFont = rajdhaniPath ? 'Rajdhani' : chakraPath ? 'ChakraPetch' : 'Helvetica-Bold';
+  const badgeFont = chakraPath ? 'ChakraPetch' : mainFont;
+
   const drawCard = (xOffset: number, card: any) => {
     const cardWidth = 360;
     const cardHeight = 564;
@@ -554,17 +578,17 @@ app.get('/api/cards/print', async (req, res) => {
     const cardY = 24;
 
     doc.save();
-    // White background
-    doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 16).fill('#FFFFFF');
+    // Clean off-white background matching inspiration image canvas texture
+    doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 16).fill('#FAFAFC');
 
-    // Outer double cyan border
-    doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 16).lineWidth(2.5).stroke('#4FA8D5');
-    doc.roundedRect(cardX + 4, cardY + 4, cardWidth - 8, cardHeight - 8, 12).lineWidth(1).stroke('#4FA8D5');
+    // Outer double cyan border matching inspiration image lines
+    doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 16).lineWidth(2.5).stroke('#4A92B8');
+    doc.roundedRect(cardX + 4, cardY + 4, cardWidth - 8, cardHeight - 8, 12).lineWidth(1.2).stroke('#4A92B8');
 
     // Header Title Box: "MATHFEST: AI SPEED BINGO"
-    doc.roundedRect(cardX + 14, cardY + 14, cardWidth - 28, 48, 10).lineWidth(1.5).stroke('#4FA8D5');
-    doc.font('Helvetica-Bold').fontSize(19).fillColor('#0B1938')
-       .text('MATHFEST: AI SPEED BINGO', cardX + 14, cardY + 28, { width: cardWidth - 28, align: 'center' });
+    doc.roundedRect(cardX + 14, cardY + 14, cardWidth - 28, 48, 10).lineWidth(1.5).stroke('#4A92B8');
+    doc.font(mainFont).fontSize(22).fillColor('#0B1938')
+       .text('MATHFEST: AI SPEED BINGO', cardX + 14, cardY + 27, { width: cardWidth - 28, align: 'center', characterSpacing: 1 });
 
     const gridX = cardX + 14;
     const gridY = cardY + 70;
@@ -579,9 +603,9 @@ app.get('/api/cards/print', async (req, res) => {
       const cx = gridX + colIdx * colW + 2;
       const cy = gridY;
       const cw = colW - 4;
-      doc.roundedRect(cx, cy, cw, headerH, 8).lineWidth(1.5).stroke('#4FA8D5');
-      doc.font('Helvetica-Bold').fontSize(22).fillColor('#0B1938')
-         .text(letter, cx, cy + 8, { width: cw, align: 'center' });
+      doc.roundedRect(cx, cy, cw, headerH, 8).lineWidth(1.5).stroke('#4A92B8');
+      doc.font(mainFont).fontSize(24).fillColor('#0B1938')
+         .text(letter, cx, cy + 6, { width: cw, align: 'center' });
     });
 
     // 5x5 Matrix Grid
@@ -589,37 +613,37 @@ app.get('/api/cards/print', async (req, res) => {
     const matrixTop = gridY + headerH + 8; // cardY + 114
 
     // Outer grid border
-    doc.rect(gridX, matrixTop, totalGridWidth, rowH * 5).lineWidth(1.5).stroke('#4FA8D5');
+    doc.rect(gridX, matrixTop, totalGridWidth, rowH * 5).lineWidth(1.5).stroke('#4A92B8');
 
     for (let r = 0; r < 5; r++) {
       for (let c = 0; c < 5; c++) {
         const cx = gridX + c * colW;
         const cy = matrixTop + r * rowH;
         
-        doc.rect(cx, cy, colW, rowH).lineWidth(1).stroke('#4FA8D5');
+        doc.rect(cx, cy, colW, rowH).lineWidth(1).stroke('#4A92B8');
 
         const gridIdx = r * 5 + c;
         if (r === 2 && c === 2) {
-          doc.font('Helvetica-Bold').fontSize(20).fillColor('#0B1938')
-             .text('FREE', cx, cy + (rowH / 2) - 10, { width: colW, align: 'center' });
+          doc.font(mainFont).fontSize(22).fillColor('#0B1938')
+             .text('FREE', cx, cy + (rowH / 2) - 10, { width: colW, align: 'center', characterSpacing: 1 });
         } else {
           const numVal = numbers[gridIdx];
-          doc.font('Helvetica-Bold').fontSize(32).fillColor('#0B1938')
-             .text(String(numVal), cx, cy + (rowH / 2) - 16, { width: colW, align: 'center' });
+          doc.font(mainFont).fontSize(36).fillColor('#0B1938')
+             .text(String(numVal), cx, cy + (rowH / 2) - 18, { width: colW, align: 'center' });
         }
       }
     }
 
     // Bottom Badge: #CARD - XXXXXX
-    const badgeW = 150;
+    const badgeW = 155;
     const badgeH = 26;
     const badgeX = cardX + (cardWidth - badgeW) / 2;
     const badgeY = cardY + cardHeight - 13;
 
     doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 6).fill('#FFFFFF');
-    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 6).lineWidth(1.5).stroke('#4FA8D5');
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('#0B1938')
-       .text(card.id, badgeX, badgeY + 6, { width: badgeW, align: 'center' });
+    doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 6).lineWidth(1.5).stroke('#4A92B8');
+    doc.font(badgeFont).fontSize(12).fillColor('#0B1938')
+       .text(card.id, badgeX, badgeY + 6, { width: badgeW, align: 'center', characterSpacing: 1 });
 
     doc.restore();
   };
@@ -650,6 +674,9 @@ io.on('connection', (socket) => {
   }
 
   socket.on('updateGameState', (newState: Partial<typeof gameState>) => {
+    if (newState.timerSeconds !== undefined && newState.timerEndTime === undefined) {
+      newState.timerEndTime = Date.now() + newState.timerSeconds * 1000;
+    }
     gameState = { ...gameState, ...newState };
     broadcastState();
   });
@@ -1347,7 +1374,7 @@ app.get('/api/register/players', async (_req, res) => {
   try {
     const players = await prisma.player.findMany({
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, email: true, isVerified: true, verificationPin: true, score: true, createdAt: true },
+      select: { id: true, name: true, email: true, isVerified: true, verificationPin: true, assignedCardId: true, score: true, createdAt: true },
     });
     res.json(players);
   } catch {
