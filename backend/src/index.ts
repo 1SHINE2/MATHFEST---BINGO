@@ -424,7 +424,7 @@ app.post('/api/verify', async (req, res) => {
         cardId: card.id,
       };
       io.emit('verificationResult', payload);
-      logEvent('BINGO', playerName, result.win ? 'Valid BINGO Victory!' : 'False BINGO Penalty', result.win ? `+${finalPoints} PTS` : `${finalPoints} PTS`, `Card ID: ${card.id} (${reason})`);
+      logEvent('BINGO', playerName, result.win ? 'Valid BINGO Victory!' : 'False BINGO Penalty', result.win ? `+${finalPoints} PTS` : `${finalPoints} PTS`, reason, card.id);
     }, 3000);
 
     const leaderboard = await getLeaderboard();
@@ -767,6 +767,7 @@ io.on('connection', (socket) => {
             reason: `Math Error Claimed (+${errorPoints} pts)`
           }
         });
+        logEvent('MATH ERROR', player.name, 'Valid Math Error Claimed', `+${errorPoints} PTS`, `Round ${gameState.round || 1} - Phase ${gameState.phase || 1}`, player.assignedCardId || SYSTEM_CARD_ID);
         const leaderboard = await getLeaderboard();
         io.emit('leaderboardUpdate', leaderboard);
         const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
@@ -812,6 +813,7 @@ io.on('connection', (socket) => {
               reason: 'False Alarm (Math Error Claimed)'
             }
           });
+          logEvent('MATH ERROR', player.name, 'False Math Error Penalty', '-100 PTS', `Round ${gameState.round || 1} - Phase ${gameState.phase || 1}`, player.assignedCardId || SYSTEM_CARD_ID);
           const leaderboard = await getLeaderboard();
           io.emit('leaderboardUpdate', leaderboard);
           const allPlayers = await prisma.player.findMany({ orderBy: { name: 'asc' } });
